@@ -1,0 +1,49 @@
+{
+  "name": "@k13engineering/boilerplate",
+  "type": "module",
+  "version": "0.0.5",
+  "description": "Boilerplate project",
+  "files": [
+    "dist"
+  ],
+  "main": "dist/lib/index.js",
+  "scripts": {
+    "build": "rm -rf dist/ && deno-node-build --root . --out dist/ --entry lib/index.ts",
+    "test": "c8 --reporter lcov --reporter html --reporter text --all --src lib/ tsx test/index.js",
+    "lint": "eslint ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k13-engineering/node-boilerplate.git"
+  },
+  "keywords": [
+    "node",
+    "boilerplate"
+  ],
+  "author": "Simon Kadisch",
+  "license": "Unlicense",
+  "bugs": {
+    "url": "https://github.com/k13-engineering/node-boilerplate/issues"
+  },
+  "homepage": "https://github.com/k13-engineering/node-boilerplate#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/deep-equal": "^1.0.4",
+    "@types/node": "^22.10.5",
+    "c8": "^10.1.3",
+    "deno-node": "^0.0.12",
+    "tsx": "^4.19.2",
+    "typescript-eslint": "^8.19.0",
+    "ya-test-library": "^0.0.3"
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.0",
+    "@types/yargs": "^17.0.33",
+    "deep-equal": "^2.2.3",
+    "esm-resource": "^0.0.3",
+    "fuse-native": "^2.2.6",
+    "isomorphic-ws": "^5.0.0",
+    "ws": "^8.18.1",
+    "yargs": "^17.7.2"
+  }
+}
