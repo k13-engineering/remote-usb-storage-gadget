@@ -1,5 +1,5 @@
 import WebSocket from "isomorphic-ws";
-import { createWebSocketJrpc } from "../../yajrpc/lib/websocket.ts";
+import { createWebSocketJrpc } from "./jrpc/websocket.ts";
 import type { TRequestMaybeResponse } from "../../yajrpc/lib/index.ts";
 
 type TBlockDeviceGeometry = {

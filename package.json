@@ -39,6 +39,7 @@
   "dependencies": {
     "@types/ws": "^8.18.0",
     "@types/yargs": "^17.0.33",
+    "bson": "^6.10.3",
     "deep-equal": "^2.2.3",
     "esm-resource": "^0.0.3",
     "fuse-native": "^2.2.6",

@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "http";
 import type { WebSocket } from "ws";
-import { createWebSocketJrpc } from "../../yajrpc/lib/websocket.ts";
-import type { TWebsocketJrpcHandle } from "../../yajrpc/lib/websocket.ts";
+import { createWebSocketJrpc } from "./jrpc/websocket.ts";
+import type { TWebsocketJrpcHandle } from "./jrpc/websocket.ts";
 import type { TBlockDevice } from "./client.ts";
 import type { TStorageGadget } from "./storage-gadget.ts";
 
