@@ -1,24 +1,60 @@
 import type { IncomingMessage } from "http";
 import type { WebSocket } from "ws";
-import { createWebSocketJrpc } from "./jrpc/websocket.ts";
+import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
 import type { TWebsocketJrpcHandle } from "./jrpc/websocket.ts";
 import type { TBlockDevice } from "./client.ts";
 import type { TStorageGadget } from "./storage-gadget.ts";
+import { createFuseVirtualFile } from "./fuse-virtual-file.ts";
 
 const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketJrpcHandle }): TBlockDevice => {
 
-  return {};
+  const read = async () => {
+    throw Error("not implemented yet");
+  };
+
+  const write = async () => {
+    throw Error("not implemented yet");
+  };
+
+  const queryGeometry = async () => {
+    const { error, response } = await jrpc.request({ method: "queryGeometry", params: {} });
+    if (error !== undefined) {
+      throw error;
+    }
+
+    if (response.error !== undefined) {
+      throw response.error;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = response.result as any;
+
+    return {
+      geometry: {
+        physicalBlockSize: result.geometry.physicalBlockSize,
+        numberOfPhysicalBlocks: BigInt(result.geometry.numberOfPhysicalBlocks)
+      }
+    };
+  };
+
+  return {
+    read,
+    write,
+    queryGeometry
+  };
 };
 
 const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadget }) => {
 
   let remoteBlockDevice: TBlockDevice | undefined = undefined;
 
+  const pVirtualFile = createFuseVirtualFile({ blockDevice: {} });
+
   const serve = ({ socket, req }: { socket: WebSocket, req: IncomingMessage }) => {
 
     console.log(`incoming connection from ${req.socket.remoteAddress}:${req.socket.remotePort}`);
 
-    const jrpc = createWebSocketJrpc({
+    const jrpc = createWebSocketBinaryJrpc({
       socket,
 
       handleNotification: async ({ method, params }) => {
@@ -51,12 +87,8 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
     remoteBlockDevice = createBlockDeviceViaJrpc({ jrpc });
 
     console.log("requesting geometry");
-    jrpc.request({ method: "queryGeometry", params: {} }).then((response) => {
-      console.log("queryGeometry response", response);
-    });
-
-    socket.on("message", (message: string) => {
-      console.log(`Received message: ${message}`);
+    remoteBlockDevice.queryGeometry().then((result) => {
+      console.log("queryGeometry result", result);
     });
 
     socket.on("error", (error: Error) => {

@@ -1,5 +1,5 @@
 import WebSocket from "isomorphic-ws";
-import { createWebSocketJrpc } from "./jrpc/websocket.ts";
+import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
 import type { TRequestMaybeResponse } from "../../yajrpc/lib/index.ts";
 
 type TBlockDeviceGeometry = {
@@ -64,7 +64,10 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
 
     return {
       result: {
-        geometry
+        geometry: {
+          pyhsicalBlockSize: geometry.physicalBlockSize,
+          numberOfPhysicalBlocks: Number(geometry.numberOfPhysicalBlocks)
+        }
       }
     };
   };
@@ -77,7 +80,7 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
     queryGeometry: handleQueryGeometryRequest
   };
 
-  createWebSocketJrpc({
+  createWebSocketBinaryJrpc({
     socket: client,
 
     handleNotification: async ({ method, params }) => {
@@ -93,10 +96,6 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
       }
 
       return await handler(req);
-
-      return {
-        ignore: true
-      };
     }
   });
 
