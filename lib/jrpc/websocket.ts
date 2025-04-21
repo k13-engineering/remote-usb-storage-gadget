@@ -1,6 +1,6 @@
 import type WebSocket from "isomorphic-ws";
-import { create as createJrpc } from "../../../yajrpc/lib/index.ts";
-import type { TJsonRpcMessage, TNotificationHandler, TRequestHandler } from "../../../yajrpc/lib/index.ts";
+import { create as createJrpc } from "yajrpc";
+import type { TJsonRpcMessage, TNotificationHandler, TRequestHandler } from "yajrpc";
 import { BSON } from "bson";
 
 const createWebSocketJrpc = ({

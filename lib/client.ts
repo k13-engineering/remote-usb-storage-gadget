@@ -1,6 +1,7 @@
 import WebSocket from "isomorphic-ws";
 import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
 import type { TRequestMaybeResponse } from "../../yajrpc/lib/index.ts";
+import type { Binary } from "bson";
 
 type TBlockDeviceGeometry = {
   physicalBlockSize: number;
@@ -23,7 +24,7 @@ type TBlockDeviceJrpcRequest = {
   method: "write",
   params: {
     offset: number;
-    data: Uint8Array;
+    data: Binary;
   }
 } | {
   method: "queryGeometry",
@@ -48,8 +49,9 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
   const handleWriteRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "write" }>): Promise<TRequestMaybeResponse> => {
 
     const { offset, data } = request.params;
+    const dataAsUint8Array = data.buffer.subarray(0, data.length());
 
-    await blockDevice.write({ offset: BigInt(offset), data });
+    await blockDevice.write({ offset: BigInt(offset), data: dataAsUint8Array });
 
     return {
       result: {
@@ -65,7 +67,7 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
     return {
       result: {
         geometry: {
-          pyhsicalBlockSize: geometry.physicalBlockSize,
+          physicalBlockSize: geometry.physicalBlockSize,
           numberOfPhysicalBlocks: Number(geometry.numberOfPhysicalBlocks)
         }
       }
@@ -83,19 +85,24 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
   createWebSocketBinaryJrpc({
     socket: client,
 
-    handleNotification: async ({ method, params }) => {
-      console.log("notification", { method, params });
+    handleNotification: async () => {
+      // console.log("notification", { method, params });
     },
 
     handleRequest: async (req) => {
-      console.log("request", req);
+      // console.log("request", req);
 
       const handler = requestHandlers[req.method as keyof typeof requestHandlers];
       if (handler === undefined) {
         throw new Error(`Unknown method: ${req.method}`);
       }
 
-      return await handler(req);
+      // @ts-expect-error types
+      const result = await handler(req);
+
+      // console.log("result", result);
+
+      return result;
     }
   });
 

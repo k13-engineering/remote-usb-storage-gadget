@@ -1,8 +1,7 @@
 import { createClient } from "../lib/client.ts";
-import nodeFs from "node:fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import type { TBlockDevice } from "../lib/client.ts";
+import { createBlockDeviceFromFilePath } from "../lib/block/blockdev-from-file.ts";
 
 const { argv } = yargs(hideBin(process.argv))
   .option("u", {
@@ -23,40 +22,8 @@ const { argv } = yargs(hideBin(process.argv))
 
 const args = await argv;
 
+const serverUrl = args.u;
 const blockDeviceFilepath = args.b;
-
-const createBlockDeviceFromFilePath = async ({ filePath, blockSize }: { filePath: string, blockSize: number }): Promise<TBlockDevice> => {
-
-  const fh = await nodeFs.promises.open(filePath, "r+");
-  const stat = await fh.stat({ bigint: true });
-
-  if (stat.size % BigInt(blockSize) !== 0n) {
-    throw Error(`File size ${stat.size} is not a multiple of block size ${blockSize}`);
-  }
-
-  const read: TBlockDevice["read"] = async ({ offset, length }) => {
-    throw Error("not implemented yet");
-  };
-
-  const write: TBlockDevice["write"] = async ({ offset, data }) => {
-    throw Error("not implemented yet");
-  };
-
-  const queryGeometry: TBlockDevice["queryGeometry"] = async () => {
-    return {
-      geometry: {
-        physicalBlockSize: blockSize,
-        numberOfPhysicalBlocks: stat.size / BigInt(blockSize)
-      }
-    };
-  };
-
-  return {
-    read,
-    write,
-    queryGeometry
-  };
-};
 
 const blockDevice = await createBlockDeviceFromFilePath({
   filePath: blockDeviceFilepath,
@@ -82,9 +49,9 @@ const totalSize = blockDeviceGeometry.geometry.numberOfPhysicalBlocks * BigInt(b
 const totalSizeHumanReadable = formatSizeHumanReadable({ bytes: Number(totalSize) });
 
 console.log(`using "${blockDeviceFilepath}" as block device`);
-console.log(`geometry: ${totalSizeHumanReadable} (${blockDeviceGeometry.geometry.numberOfPhysicalBlocks} blocks of ${blockDeviceGeometry.geometry.physicalBlockSize} bytes)`)
+console.log(`geometry: ${totalSizeHumanReadable} (${blockDeviceGeometry.geometry.numberOfPhysicalBlocks} blocks of ${blockDeviceGeometry.geometry.physicalBlockSize} bytes)`);
 
-const client = createClient({
-  url: "ws://localhost:8080",
+createClient({
+  url: serverUrl,
   blockDevice
 });

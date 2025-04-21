@@ -2,7 +2,7 @@ import { WebSocketServer } from "ws";
 import { createUsbGadgetServer } from "../lib/server.ts";
 import { createStorageGadget } from "../lib/storage-gadget.ts";
 
-const storageGadget = createStorageGadget();
+const storageGadget = await createStorageGadget();
 
 const gadgetServer = createUsbGadgetServer({ storageGadget });
 const server = new WebSocketServer({ port: 8080 });

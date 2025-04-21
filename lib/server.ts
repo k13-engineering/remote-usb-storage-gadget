@@ -3,20 +3,39 @@ import type { WebSocket } from "ws";
 import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
 import type { TWebsocketJrpcHandle } from "./jrpc/websocket.ts";
 import type { TBlockDevice } from "./client.ts";
-import type { TStorageGadget } from "./storage-gadget.ts";
-import { createFuseVirtualFile } from "./fuse-virtual-file.ts";
+import type { TStorageGadget, TStorageGadgetAttachment } from "./storage-gadget.ts";
 
 const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketJrpcHandle }): TBlockDevice => {
 
-  const read = async () => {
-    throw Error("not implemented yet");
+  const read: TBlockDevice["read"] = async ({ offset, length }) => {
+
+    const { error, response } = await jrpc.request({ method: "read", params: { offset, length } });
+    if (error !== undefined) {
+      throw error;
+    }
+
+    if (response.error !== undefined) {
+      throw response.error;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = response.result as any;
+    return result.data.buffer.subarray(0, result.data.length());
   };
 
-  const write = async () => {
-    throw Error("not implemented yet");
+  const write: TBlockDevice["write"] = async ({ offset, data }) => {
+
+    const { error, response } = await jrpc.request({ method: "write", params: { offset, data } });
+    if (error !== undefined) {
+      throw error;
+    }
+
+    if (response.error !== undefined) {
+      throw response.error;
+    }
   };
 
-  const queryGeometry = async () => {
+  const queryGeometry: TBlockDevice["queryGeometry"] = async () => {
     const { error, response } = await jrpc.request({ method: "queryGeometry", params: {} });
     if (error !== undefined) {
       throw error;
@@ -46,10 +65,6 @@ const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketJrpcHandle }): TBl
 
 const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadget }) => {
 
-  let remoteBlockDevice: TBlockDevice | undefined = undefined;
-
-  const pVirtualFile = createFuseVirtualFile({ blockDevice: {} });
-
   const serve = ({ socket, req }: { socket: WebSocket, req: IncomingMessage }) => {
 
     console.log(`incoming connection from ${req.socket.remoteAddress}:${req.socket.remotePort}`);
@@ -70,8 +85,8 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
       }
     });
 
-    if (remoteBlockDevice !== undefined) {
-
+    const status = storageGadget.status();
+    if (status.attached) {
       console.log("rejecting connection, another client is already connected");
 
       jrpc.notify({
@@ -84,11 +99,16 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
       return;
     }
 
-    remoteBlockDevice = createBlockDeviceViaJrpc({ jrpc });
+    const remoteBlockDevice = createBlockDeviceViaJrpc({ jrpc });
 
-    console.log("requesting geometry");
-    remoteBlockDevice.queryGeometry().then((result) => {
-      console.log("queryGeometry result", result);
+    let closed = false;
+    let storageGadgetAttachment: TStorageGadgetAttachment | undefined = undefined;
+
+    storageGadget.attach({ blockDevice: remoteBlockDevice }).then((attachment) => {
+      storageGadgetAttachment = attachment;
+      if (closed) {
+        storageGadgetAttachment.detach();
+      }
     });
 
     socket.on("error", (error: Error) => {
@@ -96,8 +116,11 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
     });
 
     socket.on("close", () => {
+      closed = true;
       console.log("Connection closed");
-      remoteBlockDevice = undefined;
+
+      console.log({ storageGadgetAttachment });
+      storageGadgetAttachment?.detach();
     });
   };
 

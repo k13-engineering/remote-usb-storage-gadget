@@ -42,9 +42,10 @@
     "bson": "^6.10.3",
     "deep-equal": "^2.2.3",
     "esm-resource": "^0.0.3",
-    "fuse-native": "^2.2.6",
+    "fuse-native": "git+https://github.com/skadisch/fuse-native.git#cc131fe4b4c4f447bbee8a42eaced56a4515cc5c",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.18.1",
+    "yajrpc": "git+https://github.com/k13-engineering/yajrpc.git#1081d45ca511596fe5643e9c9f77bc73b08de2c6",
     "yargs": "^17.7.2"
   }
 }
