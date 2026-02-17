@@ -6,7 +6,7 @@ Type=simple
 User=root
 Restart=always
 RestartSec=1
-ExecStart=/home/dev/remote-usb-storage-gadget/node_modules/.bin/tsx /home/dev/remote-usb-storage-gadget/bin/server.ts
+ExecStart=/usr/local/bin/node /home/dev/remote-usb-storage-gadget/bin/server.ts
 
 [Install]
 WantedBy=multi-user.target

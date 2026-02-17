@@ -2,28 +2,47 @@ import type { TBlockDevice } from "./client.ts";
 import { createFuseVirtualFile } from "./fuse-virtual-file.ts";
 import { createSimpleMassStorageGadget } from "./gadget/simple-mass-storage.ts";
 
-const createStorageGadget = async () => {
+const createStorageGadget = async ({
+  udc,
+
+  idVendor,
+  idProduct,
+  bcdDevice,
+
+  manufacturer,
+  product,
+  serialnumber
+
+}: {
+  udc: string,
+
+  idVendor: number;
+  idProduct: number;
+  bcdDevice: number;
+
+  manufacturer: string;
+  product: string;
+  serialnumber: string;
+}) => {
 
   let attachedBlockDevice: TBlockDevice | undefined = undefined;
   const simpleMassStorageGadget = createSimpleMassStorageGadget({
     gadgetName: "mygadget",
     massStorageConfig: {
-      idVendor: 0x1234,
-      idProduct: 0x5678,
-      bcdDevice: 0x0100,
+      idVendor,
+      idProduct,
+      bcdDevice,
       bcdUSB: 0x0200,
 
       strings: {
         "0x409": {
-          manufacturer: "Acme",
-          product: "USB Gadget",
-          serialnumber: "123456"
+          manufacturer,
+          product,
+          serialnumber
         }
       },
     }
   });
-
-  const udc = "fcc00000.usb";
 
   const virtualFile = await createFuseVirtualFile();
   simpleMassStorageGadget.disable();

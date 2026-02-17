@@ -1,11 +1,11 @@
 import type { IncomingMessage } from "http";
 import type { WebSocket } from "ws";
 import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
-import type { TWebsocketJrpcHandle } from "./jrpc/websocket.ts";
+import type { TWebsocketBinaryJrpcHandle } from "./jrpc/websocket.ts";
 import type { TBlockDevice } from "./client.ts";
 import type { TStorageGadget, TStorageGadgetAttachment } from "./storage-gadget.ts";
 
-const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketJrpcHandle }): TBlockDevice => {
+const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketBinaryJrpcHandle }): TBlockDevice => {
 
   const read: TBlockDevice["read"] = async ({ offset, length }) => {
 
@@ -80,8 +80,17 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
         console.log("request", { method, params });
 
         return {
-          ignore: true
+          error: undefined,
+          result: undefined
         };
+      },
+
+      onConnectionError: ({ error }) => {
+        console.error(`Connection error: ${error.message}`);
+      },
+
+      onRemoteClose: () => {
+        console.log("Remote closed the connection");
       }
     });
 

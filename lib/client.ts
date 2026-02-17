@@ -1,6 +1,6 @@
 import WebSocket from "isomorphic-ws";
 import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
-import type { TRequestMaybeResponse } from "../../yajrpc/lib/index.ts";
+import type { TRequestResponse } from "@k13engineering/yajrpc";
 import type { Binary } from "bson";
 
 type TBlockDeviceGeometry = {
@@ -33,20 +33,21 @@ type TBlockDeviceJrpcRequest = {
 const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDevice }) => {
   const client = new WebSocket(url);
 
-  const handleReadRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "read" }>): Promise<TRequestMaybeResponse> => {
+  const handleReadRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "read" }>): Promise<TRequestResponse> => {
 
     const { offset, length } = request.params;
 
     const data = await blockDevice.read({ offset: BigInt(offset), length });
 
     return {
+      error: undefined,
       result: {
         data
       }
     };
   };
 
-  const handleWriteRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "write" }>): Promise<TRequestMaybeResponse> => {
+  const handleWriteRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "write" }>): Promise<TRequestResponse> => {
 
     const { offset, data } = request.params;
     const dataAsUint8Array = data.buffer.subarray(0, data.length());
@@ -54,17 +55,19 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
     await blockDevice.write({ offset: BigInt(offset), data: dataAsUint8Array });
 
     return {
+      error: undefined,
       result: {
 
       }
     };
   };
 
-  const handleQueryGeometryRequest = async (): Promise<TRequestMaybeResponse> => {
+  const handleQueryGeometryRequest = async (): Promise<TRequestResponse> => {
 
     const { geometry } = await blockDevice.queryGeometry();
 
     return {
+      error: undefined,
       result: {
         geometry: {
           physicalBlockSize: geometry.physicalBlockSize,
@@ -75,7 +78,7 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
   };
 
   const requestHandlers: {
-    [key in TBlockDeviceJrpcRequest["method"]]: (arg: Extract<TBlockDeviceJrpcRequest, "method">) => Promise<TRequestMaybeResponse>
+    [key in TBlockDeviceJrpcRequest["method"]]: (arg: Extract<TBlockDeviceJrpcRequest, "method">) => Promise<TRequestResponse>
   } = {
     read: handleReadRequest,
     write: handleWriteRequest,
@@ -103,6 +106,14 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
       // console.log("result", result);
 
       return result;
+    },
+
+    onConnectionError: ({ error }) => {
+      console.error(`Connection error: ${error.message}`);
+    },
+
+    onRemoteClose: () => {
+      console.log("Remote closed the connection");
     }
   });
 

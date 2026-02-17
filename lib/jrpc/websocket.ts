@@ -1,87 +1,80 @@
 import type WebSocket from "isomorphic-ws";
-import { create as createJrpc } from "yajrpc";
-import type { TJsonRpcMessage, TNotificationHandler, TRequestHandler } from "yajrpc";
+import { createWebSocketJrpc } from "@k13engineering/yajrpc";
+import type { TWebSocketMessageParser } from "@k13engineering/yajrpc";
 import { BSON } from "bson";
+import type { TNotificationHandler, TRequestHandler } from "@k13engineering/yajrpc/dist/lib/types.js";
 
-const createWebSocketJrpc = ({
-  socket,
-  handleRequest,
-  handleNotification,
-}: {
-  socket: WebSocket,
-  handleRequest: TRequestHandler;
-  handleNotification: TNotificationHandler;
-}) => {
+const createBsonParser = (): TWebSocketMessageParser => {
 
-  const sendMessage = ({ message }: { message: TJsonRpcMessage }) => {
-    socket.send(JSON.stringify(message));
+  const parse: TWebSocketMessageParser["parse"] = ({ data }) => {
+
+    if (!(data instanceof Uint8Array)) {
+      return {
+        error: Error("unsupported WebSocket data type"),
+      };
+    }
+
+    try {
+
+      const message = BSON.deserialize(data);
+
+      return {
+        error: undefined,
+        message
+      };
+    } catch (ex) {
+      const error = ex as Error;
+      return { error };
+    }
   };
 
-  const jrpc = createJrpc({
-    sendMessage,
-    handleRequest,
-    handleNotification
-  });
-
-  socket.addEventListener("message", (event) => {
-    jrpc.receivedMessage({ message: JSON.parse(event.data) });
-  });
-
-  socket.addEventListener("close", () => {
-    jrpc.close();
-  });
+  const format: TWebSocketMessageParser["format"] = ({ message }) => {
+    return BSON.serialize(message as Document);
+  };
 
   return {
-    request: jrpc.request,
-    notify: jrpc.notify
+    parse,
+    format
   };
 };
 
 const createWebSocketBinaryJrpc = ({
   socket,
+
   handleRequest,
   handleNotification,
+
+  onConnectionError,
+  onRemoteClose
 }: {
   socket: WebSocket,
+
   handleRequest: TRequestHandler;
   handleNotification: TNotificationHandler;
+
+  onConnectionError: ({ error }: { error: Error }) => void;
+  onRemoteClose: () => void;
 }) => {
 
-  const sendMessage = ({ message }: { message: TJsonRpcMessage }) => {
-    socket.send(BSON.serialize(message));
-  };
+  const parser = createBsonParser();
 
-  const jrpc = createJrpc({
-    sendMessage,
+  return createWebSocketJrpc({
+    // @ts-expect-error slightly different type signature, but compatible
+    socket,
     handleRequest,
-    handleNotification
+    handleNotification,
+    parser,
+    onConnectionError,
+    onRemoteClose
   });
-
-  socket.addEventListener("message", (event) => {
-    const message = BSON.deserialize(event.data);
-    jrpc.receivedMessage({ message });
-  });
-
-  socket.addEventListener("close", () => {
-    jrpc.close();
-  });
-
-  return {
-    request: jrpc.request,
-    notify: jrpc.notify
-  };
 };
 
 type TWebsocketBinaryJrpcHandle = ReturnType<typeof createWebSocketBinaryJrpc>;
 
-type TWebsocketJrpcHandle = ReturnType<typeof createWebSocketJrpc>;
-
 export {
-  createWebSocketJrpc,
   createWebSocketBinaryJrpc
 };
 
 export type {
-  TWebsocketJrpcHandle,
   TWebsocketBinaryJrpcHandle
 };

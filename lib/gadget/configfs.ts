@@ -11,6 +11,11 @@ const writeConfigfsFile = ({ path, content }: { path: string, content: string })
   nodeFs.writeFileSync(path, content);
 };
 
+const writeConfigfsHexFile = ({ path, content }: { path: string, content: number }) => {
+  const hexContent = `0x${content.toString(16)}`;
+  writeConfigfsFile({ path, content: hexContent });
+};
+
 const createConfigfsLink = ({ path, target }: { path: string, target: string }) => {
   console.log(`linking ${path} --> ${target}`);
   nodeFs.symlinkSync(target, path);
@@ -152,6 +157,13 @@ const findConfigfsGadgetPath = ({ gadgetName }: { gadgetName: string }) => {
   return configfsGadgetPath;
 };
 
+const createGadgetAttributesFiles = ({ configfsGadgetPath, gadgetConfig }: { configfsGadgetPath: string, gadgetConfig: TGadgetConfig }) => {
+  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "idVendor"), content: gadgetConfig.idVendor });
+  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "idProduct"), content: gadgetConfig.idProduct });
+  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "bcdDevice"), content: gadgetConfig.bcdDevice });
+  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "bcdUSB"), content: gadgetConfig.bcdUSB });
+};
+
 const createStringsFiles = ({ configfsGadgetPath, strings }: { configfsGadgetPath: string, strings: TGadgetConfig["strings"] }) => {
   const stringsDir = nodePath.join(configfsGadgetPath, "strings", "0x409");
 
@@ -227,6 +239,7 @@ const createGadgetViaConfigfs = ({
   purgeGadget({ configfsGadgetPath });
 
   nodeFs.mkdirSync(configfsGadgetPath);
+  createGadgetAttributesFiles({ configfsGadgetPath, gadgetConfig });
   createStringsFiles({ configfsGadgetPath, strings: gadgetConfig.strings });
   const { functionPathsByNames } = createFunctionsFiles({ configfsGadgetPath, functions: gadgetConfig.functions });
   createConfigsFiles({ configfsGadgetPath, configs: gadgetConfig.configs });

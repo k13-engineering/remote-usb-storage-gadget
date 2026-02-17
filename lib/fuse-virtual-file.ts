@@ -4,7 +4,7 @@ import nodeFs from "node:fs";
 import nodeChildProcess from "node:child_process";
 import type { TBlockDevice } from "./client.ts";
 
-// eslint-disable-next-line complexity,max-statements
+// eslint-disable-next-line max-statements
 const createFuseVirtualFile = async () => {
 
   const virtualFileName = "virtual";

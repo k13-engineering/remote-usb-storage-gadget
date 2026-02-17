@@ -1,13 +1,20 @@
-FROM debian:trixie-20250224 AS system-build
+FROM debian:trixie-20260202 AS system-build
 
-RUN echo 123 && apt-get update && apt-get upgrade -y
+RUN apt-get update && apt-get upgrade -y
 
-RUN apt-get install -y curl
+RUN apt-get install -y wget xz-utils
 
-RUN curl -fsSL https://deb.nodesource.com/setup_23.x | bash -
+ARG NODE_TARBALL
+
+RUN wget $NODE_TARBALL
+RUN tar -xvf node-*.tar.xz
+RUN mv node-*/lib/* /usr/local/lib
+RUN mv node-*/bin/* /usr/local/bin
+RUN mv node-*/include/* /usr/local/include
+RUN mv node-*/share/* /usr/local/share
+RUN rm node-*.tar.xz
 
 RUN apt-get install -y \
-    nodejs \
     libfuse2 fuse \
     kmod \
     systemd \
