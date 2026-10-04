@@ -203,11 +203,6 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
       }
     },
 
-    // writes are passed to the block device right away, so there is nothing to flush
-    flush: async () => {
-      return { forOpcode: "FLUSH", errorCode: undefined, result: {} };
-    },
-
     fsync: async () => {
       return { forOpcode: "FSYNC", errorCode: undefined, result: {} };
     },
@@ -245,6 +240,10 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
         result: { blocks: 0n, bfree: 0n, bavail: 0n, files: 0n, ffree: 0n, bsize: 512n, namelen: 255n, frsize: 0n },
       };
     },
+
+    // writes are passed to the block device right away, so there is nothing to flush. Replying ENOSYS
+    // makes the kernel stop sending FLUSH, see createFuseVirtualFile why that matters
+    flush: notImplemented({ forOpcode: "FLUSH" }),
 
     setattr: notImplemented({ forOpcode: "SETATTR" }),
     listxattr: notImplemented({ forOpcode: "LISTXATTR" }),
@@ -331,6 +330,12 @@ const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem
 
   const virtualFile = await openVirtualFile();
   const { fd } = virtualFile;
+
+  // closing a file on fuse waits for the reply to FLUSH without a timeout. If this process exited with the
+  // virtual file open, nobody could reply anymore and the exit would hang forever. Closing a second handle
+  // now lets the kernel learn that FLUSH is not implemented, so it never sends it again
+  const flushProbe = await system.fs.promises.open(`/proc/${system.pid}/fd/${fd}`, "r");
+  await flushProbe.close();
 
   console.log("fd is", fd);
 
