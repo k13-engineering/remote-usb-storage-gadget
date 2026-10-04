@@ -18,11 +18,11 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@k13engineering/linux-fuse": "^0.1.1",
     "@k13engineering/yajrpc": "0.0.6",
     "@types/ws": "^8.18.0",
     "@types/yargs": "^17.0.33",
     "bson": "^6.10.3",
-    "fuse-native": "git+https://github.com/skadisch/fuse-native.git#cc131fe4b4c4f447bbee8a42eaced56a4515cc5c",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.18.1",
     "yargs": "^17.7.2"

@@ -1,202 +1,350 @@
-// @ts-expect-error missing types
-import Fuse from "fuse-native";
-import nodeFs from "node:fs";
-import nodeChildProcess from "node:child_process";
+import nodeOs from "node:os";
+import {
+  createConvenienceRequestHandler,
+  createDefaultInitResult,
+  defaultFusePath,
+  direntsToBuffer,
+  type TDirent,
+  type TFuseServerInterface,
+} from "@k13engineering/linux-fuse";
 import type { TBlockDevice } from "./client.ts";
+import { realSystem, type TSystem } from "./system.ts";
 
-// eslint-disable-next-line max-statements
-const createFuseVirtualFile = async () => {
+const { EIO, ENOENT, ENOSYS, ENOTDIR } = nodeOs.constants.errno;
 
-  const virtualFileName = "virtual";
+const rootNodeId = 1n;
+const virtualFileNodeId = 2n;
+const virtualFileName = "virtual";
 
-  const uid = 0;
-  const gid = 0;
+const S_IFDIR = 0o040000n;
+const S_IFREG = 0o100000n;
 
-  let fdCounter = 1;
+// see FUSE_ASYNC_READ in <linux/fuse.h>, lets the kernel issue several reads at once
+const FUSE_ASYNC_READ = 1n << 0n;
+
+type TFuseAttr = Extract<Awaited<ReturnType<TFuseServerInterface["getattr"]>>, { errorCode: undefined }>["result"]["attr"];
+
+const nowNsec = () => {
+  return BigInt(Date.now()) * 1_000_000n;
+};
+
+const createAttr = ({ ino, mode, nlink, size }: { ino: bigint; mode: bigint; nlink: bigint; size: bigint }): TFuseAttr => {
+  const now = nowNsec();
+
+  return {
+    ino,
+    mode,
+    nlink,
+    uid: 0n,
+    gid: 0n,
+    rdev: 0n,
+    size,
+    blksize: 4096n,
+    blocks: (size + 511n) / 512n,
+    atimeNsec: now,
+    mtimeNsec: now,
+    ctimeNsec: now,
+  };
+};
+
+const notImplemented = <T extends string>({ forOpcode }: { forOpcode: T }) => {
+  return async () => {
+    return { forOpcode, errorCode: -ENOSYS, result: undefined };
+  };
+};
+
+// a filesystem with a single file in its root directory, which reads from and writes to the assigned block device
+const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => TBlockDevice | undefined }): TFuseServerInterface => {
+
+  let nextFileHandle = 1n;
+
+  const virtualFileSize = async () => {
+    const currentBlockDevice = blockDevice();
+    if (currentBlockDevice === undefined) {
+      return 0n;
+    }
+
+    try {
+      const { geometry } = await currentBlockDevice.queryGeometry();
+      return geometry.numberOfPhysicalBlocks * BigInt(geometry.physicalBlockSize);
+    } catch (ex) {
+      console.error(ex);
+      return 0n;
+    }
+  };
+
+  const virtualFileAttr = async () => {
+    return createAttr({ ino: virtualFileNodeId, mode: S_IFREG | 0o644n, nlink: 1n, size: await virtualFileSize() });
+  };
+
+  const attrOfNode = async ({ nodeId }: { nodeId: bigint }): Promise<TFuseAttr | undefined> => {
+    if (nodeId === rootNodeId) {
+      return createAttr({ ino: rootNodeId, mode: S_IFDIR | 0o755n, nlink: 2n, size: 0n });
+    }
+
+    if (nodeId === virtualFileNodeId) {
+      return virtualFileAttr();
+    }
+
+    return undefined;
+  };
+
+  const getattr = async ({ nodeId }: { nodeId: bigint }) => {
+    const attr = await attrOfNode({ nodeId });
+    if (attr === undefined) {
+      return { forOpcode: "GETATTR", errorCode: -ENOENT, result: undefined } as const;
+    }
+
+    // attributes are never cached, so the size follows the assigned block device
+    return { forOpcode: "GETATTR", errorCode: undefined, result: { attrValidNsec: 0n, attr } } as const;
+  };
+
+  const blockDeviceOrError = ({ operation }: { operation: string }) => {
+    const currentBlockDevice = blockDevice();
+    if (currentBlockDevice === undefined) {
+      console.error(`${operation} without block device`);
+    }
+
+    return currentBlockDevice;
+  };
+
+  const directoryEntries: TDirent[] = [
+    { inode: rootNodeId, nextOffset: 1n, fileType: "DT_DIR", name: "." },
+    { inode: rootNodeId, nextOffset: 2n, fileType: "DT_DIR", name: ".." },
+    { inode: virtualFileNodeId, nextOffset: 3n, fileType: "DT_REG", name: virtualFileName },
+  ];
+
+  return {
+    init: async () => {
+      return {
+        forOpcode: "INIT",
+        errorCode: undefined,
+        result: {
+          ...createDefaultInitResult(),
+          maxReadahead: 128n * 1024n,
+          flags: FUSE_ASYNC_READ,
+        },
+      };
+    },
+
+    // the nodes of this filesystem are static, so there is nothing to forget
+    forget: async () => {},
+    batchForget: async () => {},
+    interrupt: async () => {},
+    notifyReply: async () => {},
+
+    destroy: async () => {
+      return { forOpcode: "DESTROY", errorCode: undefined, result: {} };
+    },
+
+    lookup: async ({ parentNodeId, name }) => {
+      if (parentNodeId !== rootNodeId || name !== virtualFileName) {
+        return { forOpcode: "LOOKUP", errorCode: -ENOENT, result: undefined };
+      }
+
+      const attr = await virtualFileAttr();
+
+      return {
+        forOpcode: "LOOKUP",
+        errorCode: undefined,
+        result: { nodeId: virtualFileNodeId, generation: 0n, entryValidNsec: 0n, attrValidNsec: 0n, attr },
+      };
+    },
+
+    getattr,
+
+    fgetattr: async () => {
+      // only the virtual file is opened with file handles
+      return getattr({ nodeId: virtualFileNodeId });
+    },
+
+    open: async ({ nodeId }) => {
+      if (nodeId !== virtualFileNodeId) {
+        return { forOpcode: "OPEN", errorCode: -ENOENT, result: undefined };
+      }
+
+      const fh = nextFileHandle;
+      nextFileHandle += 1n;
+
+      return {
+        forOpcode: "OPEN",
+        errorCode: undefined,
+        result: { fh, openFlagsToKernel: { directIo: false, keepCache: false, nonSeekable: false } },
+      };
+    },
+
+    read: async ({ offset, size }) => {
+      const currentBlockDevice = blockDeviceOrError({ operation: "read" });
+      if (currentBlockDevice === undefined) {
+        return { forOpcode: "READ", errorCode: -EIO, result: undefined };
+      }
+
+      try {
+        const data = await currentBlockDevice.read({ offset, length: Number(size) });
+        return { forOpcode: "READ", errorCode: undefined, result: { data } };
+      } catch (ex) {
+        console.error(ex);
+        return { forOpcode: "READ", errorCode: -EIO, result: undefined };
+      }
+    },
+
+    write: async ({ offset, data }) => {
+      const currentBlockDevice = blockDeviceOrError({ operation: "write" });
+      if (currentBlockDevice === undefined) {
+        return { forOpcode: "WRITE", errorCode: -EIO, result: undefined };
+      }
+
+      try {
+        await currentBlockDevice.write({ offset, data });
+        return { forOpcode: "WRITE", errorCode: undefined, result: { bytesWritten: BigInt(data.length) } };
+      } catch (ex) {
+        console.error(ex);
+        return { forOpcode: "WRITE", errorCode: -EIO, result: undefined };
+      }
+    },
+
+    // writes are passed to the block device right away, so there is nothing to flush
+    flush: async () => {
+      return { forOpcode: "FLUSH", errorCode: undefined, result: {} };
+    },
+
+    fsync: async () => {
+      return { forOpcode: "FSYNC", errorCode: undefined, result: {} };
+    },
+
+    release: async () => {
+      return { forOpcode: "RELEASE", errorCode: undefined, result: {} };
+    },
+
+    opendir: async ({ nodeId }) => {
+      if (nodeId !== rootNodeId) {
+        return { forOpcode: "OPENDIR", errorCode: -ENOTDIR, result: undefined };
+      }
+
+      return {
+        forOpcode: "OPENDIR",
+        errorCode: undefined,
+        result: { fh: 0n, openFlagsToKernel: { directIo: false, keepCache: false, nonSeekable: false } },
+      };
+    },
+
+    readdir: async ({ offset, size }) => {
+      const data = direntsToBuffer({ entries: directoryEntries.slice(Number(offset)), maxLength: Number(size) });
+      return { forOpcode: "READDIR", errorCode: undefined, result: { data } };
+    },
+
+    releasedir: async () => {
+      return { forOpcode: "RELEASEDIR", errorCode: undefined, result: {} };
+    },
+
+    statfs: async () => {
+      // same values libfuse reports for filesystems without statfs
+      return {
+        forOpcode: "STATFS",
+        errorCode: undefined,
+        result: { blocks: 0n, bfree: 0n, bavail: 0n, files: 0n, ffree: 0n, bsize: 512n, namelen: 255n, frsize: 0n },
+      };
+    },
+
+    setattr: notImplemented({ forOpcode: "SETATTR" }),
+    listxattr: notImplemented({ forOpcode: "LISTXATTR" }),
+    getxattr: notImplemented({ forOpcode: "GETXATTR" }),
+    readlink: notImplemented({ forOpcode: "READLINK" }),
+    symlink: notImplemented({ forOpcode: "SYMLINK" }),
+    mknod: notImplemented({ forOpcode: "MKNOD" }),
+    mkdir: notImplemented({ forOpcode: "MKDIR" }),
+    unlink: notImplemented({ forOpcode: "UNLINK" }),
+    rmdir: notImplemented({ forOpcode: "RMDIR" }),
+    rename: notImplemented({ forOpcode: "RENAME" }),
+    link: notImplemented({ forOpcode: "LINK" }),
+    fsyncdir: notImplemented({ forOpcode: "FSYNCDIR" }),
+    access: notImplemented({ forOpcode: "ACCESS" }),
+    setxattr: notImplemented({ forOpcode: "SETXATTR" }),
+    removexattr: notImplemented({ forOpcode: "REMOVEXATTR" }),
+    create: notImplemented({ forOpcode: "CREATE" }),
+    getlk: notImplemented({ forOpcode: "GETLK" }),
+    setlk: notImplemented({ forOpcode: "SETLK" }),
+    setlkw: notImplemented({ forOpcode: "SETLKW" }),
+    bmap: notImplemented({ forOpcode: "BMAP" }),
+    ioctl: notImplemented({ forOpcode: "IOCTL" }),
+    poll: notImplemented({ forOpcode: "POLL" }),
+    fallocate: notImplemented({ forOpcode: "FALLOCATE" }),
+    readdirplus: notImplemented({ forOpcode: "READDIRPLUS" }),
+    lseek: notImplemented({ forOpcode: "LSEEK" }),
+    copyFileRange: notImplemented({ forOpcode: "COPY_FILE_RANGE" }),
+    setupMapping: notImplemented({ forOpcode: "SETUPMAPPING" }),
+    removeMapping: notImplemented({ forOpcode: "REMOVEMAPPING" }),
+    syncfs: notImplemented({ forOpcode: "SYNCFS" }),
+    tmpfile: notImplemented({ forOpcode: "TMPFILE" }),
+    statx: notImplemented({ forOpcode: "STATX" }),
+  };
+};
+
+const mountVirtualFileSystem = ({ system, serverInterface }: { system: TSystem; serverInterface: TFuseServerInterface }) => {
+  const { error: openError, fuseFd } = system.fuse.openFuseFd({ fusePath: defaultFusePath });
+  if (openError !== undefined) {
+    throw openError;
+  }
+
+  const fileSystem = system.fuse.createFuseFileSystem({
+    fuseFd,
+    requestHandler: createConvenienceRequestHandler({ serverInterface }),
+  });
+
+  // a detached mount is not attached anywhere in the filesystem tree and lives as long as files on it are open
+  const { error: mountError, mountFd } = fileSystem.mountDetached({
+    // the gadget needs root to configure configfs, so the mount belongs to root
+    requiredOptions: { rootmode: Number(S_IFDIR), user_id: 0, group_id: 0 },
+    otherOptions: {},
+    mountAttributes: { MOUNT_ATTR_NOSUID: true, MOUNT_ATTR_NODEV: true, MOUNT_ATTR_NOEXEC: true },
+  });
+
+  if (mountError !== undefined) {
+    fileSystem.close();
+    throw mountError;
+  }
+
+  return { mountFd };
+};
+
+const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem } = {}) => {
 
   let blockDevice: TBlockDevice | undefined = undefined;
 
-  const getattrHandlersByPath: { [key: string]: (args: { path: string }) => Promise<unknown> } = {
-    "/": async () => {
-      return {
-        mtime: new Date(),
-        atime: new Date(),
-        ctime: new Date(),
-        nlink: 1,
-        size: 100,
-        mode: 16877,
-        uid,
-        gid
-      };
+  const serverInterface = createVirtualFileServerInterface({
+    blockDevice: () => {
+      return blockDevice;
     },
+  });
 
-    [`/${virtualFileName}`]: async () => {
-      // TODO: exceptions
+  const { mountFd } = mountVirtualFileSystem({ system, serverInterface });
 
-      let totalBytes = 0;
-
-      if (blockDevice !== undefined) {
-        try {
-          const geometry = await blockDevice.queryGeometry();
-          totalBytes = Number(geometry.geometry.numberOfPhysicalBlocks) * geometry.geometry.physicalBlockSize;
-        } catch (ex) {
-          console.error(ex);
-        }
-      }
-
-      return {
-        mtime: new Date(),
-        atime: new Date(),
-        ctime: new Date(),
-        nlink: 1,
-        size: totalBytes,
-        mode: 33188,
-        uid,
-        gid
-      };
+  const openVirtualFile = async () => {
+    try {
+      // must not block the event loop, which serves the requests of the open
+      return await system.fs.promises.open(`/proc/${system.pid}/fd/${mountFd}/${virtualFileName}`, "r+");
+    } finally {
+      // the open file keeps the mount alive
+      system.fs.closeSync(mountFd);
     }
   };
 
-  // fuse-native expects callbacks with positional parameters
-  /* eslint-disable k13-engineering/prefer-single-object-parameters */
-  const fuseOps = {
-    // @ts-expect-error missing types
-    readdir: (path, cb) => {
-      // console.log('readdir(%s)', path)
-      if (path === "/") {
-        return cb(0, [virtualFileName]);
-      }
-
-      return cb(0);
-    },
-
-    // @ts-expect-error missing types
-    getattr: async (path, cb) => {
-
-      const handler = getattrHandlersByPath[path];
-      if (handler !== undefined) {
-        const result = await handler({ path });
-        cb(0, result);
-      }
-
-      cb(Fuse.ENOENT);
-    },
-
-    // @ts-expect-error missing types
-    open: (path, flags, cb) => {
-      const fd = fdCounter;
-      fdCounter += 1;
-      cb(0, fd);
-    },
-
-    // @ts-expect-error missing types
-    release: (path, fd, cb) => {
-      cb(0);
-    },
-
-    // @ts-expect-error missing types
-    // eslint-disable-next-line max-params
-    read: (path, fd, buf, len, pos, cb) => {
-
-      if (blockDevice === undefined) {
-        console.error("no block device");
-        cb(Fuse.EIO);
-        return;
-      }
-
-      blockDevice.read({
-        offset: BigInt(pos),
-        length: len
-      }).then((result) => {
-        buf.set(result);
-        cb(result.length);
-      }, (err) => {
-        console.error(err);
-        cb(Fuse.EIO);
-      });
-    },
-
-    // @ts-expect-error missing types
-    // eslint-disable-next-line max-params
-    write: (path, fd, buf, len, pos, cb) => {
-
-      if (blockDevice === undefined) {
-        console.error("no block device");
-        cb(Fuse.EIO);
-        return;
-      }
-
-      blockDevice.write({
-        offset: BigInt(pos),
-        data: buf.subarray(0, len)
-      }).then(() => {
-        cb(len);
-      }, (err) => {
-        console.error(err);
-        cb(Fuse.EIO);
-      });
-    }
-  };
-  /* eslint-enable k13-engineering/prefer-single-object-parameters */
-
-  const mountPoint = "/tmp/gadget";
-
-  // eslint-disable-next-line k13-engineering/no-new
-  const fuse = new Fuse(mountPoint, fuseOps, {
-    // debug: true,
-    force: true,
-    mkdir: true,
-    // options: ["direct_io"]
-    // make sure attributes are never cached
-    attrTimeout: "0",
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    fuse.mount((err: Error) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve();
-    });
-  });
-
-  const fd = await new Promise<number>((resolve, reject) => {
-    // eslint-disable-next-line k13-engineering/prefer-single-object-parameters
-    nodeFs.open(`${mountPoint}/${virtualFileName}`, "r+", (err, fdOpened) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(fdOpened);
-    });
-  });
-
-  nodeChildProcess.execSync(`umount -l ${mountPoint}`);
+  const virtualFile = await openVirtualFile();
+  const { fd } = virtualFile;
 
   console.log("fd is", fd);
 
   const fuseBlockDebugLink = "/tmp/fuse-block-debug";
-  await nodeFs.promises.rm(fuseBlockDebugLink, { force: true });
-  await nodeFs.promises.symlink(`/proc/${process.pid}/fd/${fd}`, fuseBlockDebugLink);
+  await system.fs.promises.rm(fuseBlockDebugLink, { force: true });
+  await system.fs.promises.symlink(`/proc/${system.pid}/fd/${fd}`, fuseBlockDebugLink);
 
   console.log(`fuse block device for debugging is available at ${fuseBlockDebugLink}`);
 
   const assign = async ({ blockDevice: newBlockDevice }: { blockDevice: TBlockDevice | undefined }) => {
     blockDevice = newBlockDevice;
 
-    await new Promise<void>((resolve, reject) => {
-      nodeFs.fstat(fd, (err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        resolve();
-      });
-    });
+    // makes the kernel query the attributes again, so it sees the size of the new block device
+    await virtualFile.stat();
   };
 
   return {
@@ -207,5 +355,6 @@ const createFuseVirtualFile = async () => {
 };
 
 export {
-  createFuseVirtualFile
+  createFuseVirtualFile,
+  createVirtualFileServerInterface,
 };
