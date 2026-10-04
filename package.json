@@ -2,20 +2,23 @@
   "type": "module",
   "scripts": {
     "build": "rm -rf dist/ && deno-node-build --root . --out dist/ --entry lib/index.ts",
+    "type-check": "tsc --noEmit",
     "test": "c8 --reporter lcov --reporter html --reporter text --all --src lib/ tsx test/index.js",
     "lint": "eslint ."
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/deep-equal": "^1.0.4",
-    "@types/node": "^22.10.5",
+    "@types/node": "^25.6.0",
     "c8": "^10.1.3",
     "deno-node": "^0.0.12",
     "tsx": "^4.19.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.19.0",
     "ya-test-library": "^0.0.3"
   },
   "dependencies": {
+    "@k13engineering/yajrpc": "0.0.6",
     "@types/ws": "^8.18.0",
     "@types/yargs": "^17.0.33",
     "bson": "^6.10.3",
@@ -24,7 +27,6 @@
     "fuse-native": "git+https://github.com/skadisch/fuse-native.git#cc131fe4b4c4f447bbee8a42eaced56a4515cc5c",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.18.1",
-    "@k13engineering/yajrpc": "0.0.6",
     "yargs": "^17.7.2"
   }
 }
