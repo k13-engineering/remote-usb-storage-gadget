@@ -31,6 +31,7 @@ type TBlockDeviceJrpcRequest = {
 };
 
 const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDevice }) => {
+  // eslint-disable-next-line k13-engineering/no-new
   const client = new WebSocket(url);
 
   const handleReadRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "read" }>): Promise<TRequestResponse> => {
@@ -97,7 +98,7 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
 
       const handler = requestHandlers[req.method as keyof typeof requestHandlers];
       if (handler === undefined) {
-        throw new Error(`Unknown method: ${req.method}`);
+        throw Error(`Unknown method: ${req.method}`);
       }
 
       // @ts-expect-error types

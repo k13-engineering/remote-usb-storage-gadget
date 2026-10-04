@@ -18,8 +18,10 @@ const storageGadget = await createStorageGadget({
 });
 
 const gadgetServer = createUsbGadgetServer({ storageGadget });
+// eslint-disable-next-line k13-engineering/no-new
 const server = new WebSocketServer({ port: 8080 });
 
+// eslint-disable-next-line k13-engineering/prefer-single-object-parameters
 server.on("connection", (socket, req) => {
   gadgetServer.serve({ socket, req });
 });

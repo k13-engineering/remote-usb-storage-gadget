@@ -2,7 +2,10 @@ import type WebSocket from "isomorphic-ws";
 import { createWebSocketJrpc } from "@k13engineering/yajrpc";
 import type { TWebSocketMessageParser } from "@k13engineering/yajrpc";
 import { BSON } from "bson";
-import type { TNotificationHandler, TRequestHandler } from "@k13engineering/yajrpc/dist/lib/types.js";
+import type {
+  TNotificationHandler,
+  TRequestHandler
+} from "@k13engineering/yajrpc/dist/lib/types.js";
 
 const createBsonParser = (): TWebSocketMessageParser => {
 

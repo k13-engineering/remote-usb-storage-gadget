@@ -57,9 +57,11 @@ const createFuseVirtualFile = async () => {
     }
   };
 
+  // fuse-native expects callbacks with positional parameters
+  /* eslint-disable k13-engineering/prefer-single-object-parameters */
   const fuseOps = {
     // @ts-expect-error missing types
-    readdir: function (path, cb) {
+    readdir: (path, cb) => {
       // console.log('readdir(%s)', path)
       if (path === "/") {
         return cb(0, [virtualFileName]);
@@ -81,7 +83,7 @@ const createFuseVirtualFile = async () => {
     },
 
     // @ts-expect-error missing types
-    open: function (path, flags, cb) {
+    open: (path, flags, cb) => {
       const fd = fdCounter;
       fdCounter += 1;
       cb(0, fd);
@@ -135,9 +137,11 @@ const createFuseVirtualFile = async () => {
       });
     }
   };
+  /* eslint-enable k13-engineering/prefer-single-object-parameters */
 
   const mountPoint = "/tmp/gadget";
 
+  // eslint-disable-next-line k13-engineering/no-new
   const fuse = new Fuse(mountPoint, fuseOps, {
     // debug: true,
     force: true,
@@ -159,6 +163,7 @@ const createFuseVirtualFile = async () => {
   });
 
   const fd = await new Promise<number>((resolve, reject) => {
+    // eslint-disable-next-line k13-engineering/prefer-single-object-parameters
     nodeFs.open(`${mountPoint}/${virtualFileName}`, "r+", (err, fdOpened) => {
       if (err) {
         reject(err);

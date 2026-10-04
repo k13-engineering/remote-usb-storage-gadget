@@ -89,7 +89,9 @@ const purgeGadgetConfigs = ({ configsDir }: { configsDir: string }) => {
     purgeGadgetStrings({ stringsDir: configStringsDir });
 
     const files = nodeFs.readdirSync(configPath, { withFileTypes: true });
-    const links = files.filter((file) => file.isSymbolicLink());
+    const links = files.filter((file) => {
+      return file.isSymbolicLink();
+    });
     links.forEach((link) => {
       nodeFs.unlinkSync(nodePath.join(configPath, link.name));
     });

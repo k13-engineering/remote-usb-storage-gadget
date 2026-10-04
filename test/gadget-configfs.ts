@@ -35,7 +35,4 @@ const gadgetConfigfs = createGadgetViaConfigfs({
   }
 });
 
-const massStorageFunction = gadgetConfigfs.functionPathsByNames["mass_storage.0"];
-
-
 console.log(gadgetConfigfs);

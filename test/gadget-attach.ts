@@ -19,7 +19,7 @@ const dummyBlockDevice: TBlockDevice = {
     return new Uint8Array(length);
   },
 
-  write: async ({ offset, data }) => {
+  write: async () => {
     throw Error("not implemented yet");
   },
 
@@ -33,6 +33,6 @@ const dummyBlockDevice: TBlockDevice = {
   }
 };
 
-const handle = await gadget.attach({ blockDevice: dummyBlockDevice });
+await gadget.attach({ blockDevice: dummyBlockDevice });
 
 console.log("gadget ready");

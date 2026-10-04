@@ -49,7 +49,8 @@ const totalSize = blockDeviceGeometry.geometry.numberOfPhysicalBlocks * BigInt(b
 const totalSizeHumanReadable = formatSizeHumanReadable({ bytes: Number(totalSize) });
 
 console.log(`using "${blockDeviceFilepath}" as block device`);
-console.log(`geometry: ${totalSizeHumanReadable} (${blockDeviceGeometry.geometry.numberOfPhysicalBlocks} blocks of ${blockDeviceGeometry.geometry.physicalBlockSize} bytes)`);
+const { numberOfPhysicalBlocks, physicalBlockSize } = blockDeviceGeometry.geometry;
+console.log(`geometry: ${totalSizeHumanReadable} (${numberOfPhysicalBlocks} blocks of ${physicalBlockSize} bytes)`);
 
 createClient({
   url: serverUrl,
