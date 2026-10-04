@@ -2,6 +2,8 @@ import nodeFs from "node:fs";
 import nodeProcess from "node:process";
 import { createFuseFileSystem, openFuseFd } from "@k13engineering/linux-fuse";
 
+type TLogger = Pick<typeof console, "log" | "error">;
+
 // everything that touches the real system goes through this object, so it can be mocked in tests
 type TSystem = {
   fs: Pick<typeof nodeFs, "closeSync"> & {
@@ -32,5 +34,6 @@ export {
 };
 
 export type {
+  TLogger,
   TSystem,
 };

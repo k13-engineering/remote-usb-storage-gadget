@@ -1,5 +1,6 @@
-import WebSocket from "isomorphic-ws";
+import type WebSocket from "isomorphic-ws";
 import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
+import type { TLogger } from "./system.ts";
 import type { TRequestResponse } from "@k13engineering/yajrpc";
 import type { Binary } from "bson";
 
@@ -30,9 +31,15 @@ type TBlockDeviceJrpcRequest = {
   method: "queryGeometry",
 };
 
-const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDevice }) => {
-  // eslint-disable-next-line k13-engineering/no-new
-  const client = new WebSocket(url);
+const createClient = ({
+  socket,
+  blockDevice,
+  logger = console,
+}: {
+  socket: WebSocket;
+  blockDevice: TBlockDevice;
+  logger?: TLogger;
+}) => {
 
   const handleReadRequest = async (request: Extract<TBlockDeviceJrpcRequest, { method: "read" }>): Promise<TRequestResponse> => {
 
@@ -87,7 +94,7 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
   };
 
   createWebSocketBinaryJrpc({
-    socket: client,
+    socket,
 
     handleNotification: async () => {
       // console.log("notification", { method, params });
@@ -110,24 +117,24 @@ const createClient = ({ url, blockDevice }: { url: string, blockDevice: TBlockDe
     },
 
     onConnectionError: ({ error }) => {
-      console.error(`Connection error: ${error.message}`);
+      logger.error(`Connection error: ${error.message}`);
     },
 
     onRemoteClose: () => {
-      console.log("Remote closed the connection");
+      logger.log("Remote closed the connection");
     }
   });
 
-  client.on("open", () => {
-    console.log("Connected");
+  socket.on("open", () => {
+    logger.log("Connected");
   });
 
-  client.on("close", () => {
-    console.log("Connection closed");
+  socket.on("close", () => {
+    logger.log("Connection closed");
   });
 
-  client.on("error", (error: Error) => {
-    console.error(`Error: ${error.message}`);
+  socket.on("error", (error: Error) => {
+    logger.error(`Error: ${error.message}`);
   });
 
   return {

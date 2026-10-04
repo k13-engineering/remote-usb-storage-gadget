@@ -4,7 +4,7 @@ const CONNECTING = 0;
 const OPEN = 1;
 const CLOSED = 3;
 
-type TListener = (event: { data?: unknown }) => void;
+type TListener = (event: { data?: unknown; message?: string }) => void;
 
 type TPeer = {
   receive: (args: { data: string | Uint8Array }) => void;
@@ -18,7 +18,7 @@ const createEndpoint = () => {
   let peer: TPeer | undefined = undefined;
   let sentMessages: (string | Uint8Array)[] = [];
 
-  const emit = ({ type, event = {} }: { type: string; event?: { data?: unknown } }) => {
+  const emit = ({ type, event = {} }: { type: string; event?: { data?: unknown; message?: string } }) => {
     listeners.filter((entry) => {
       return entry.type === type;
     }).forEach(({ listener }) => {
@@ -109,8 +109,9 @@ const createEndpoint = () => {
       socket.close();
     },
 
-    failWithError: () => {
-      emit({ type: "error" });
+    // like ws, passes the error itself to the listeners
+    failWithError: ({ error }: { error: Error }) => {
+      emit({ type: "error", event: error });
     },
 
     sentMessages: () => {

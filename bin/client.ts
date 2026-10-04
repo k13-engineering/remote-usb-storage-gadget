@@ -1,3 +1,4 @@
+import WebSocket from "isomorphic-ws";
 import { createClient } from "../lib/client.ts";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -52,7 +53,10 @@ console.log(`using "${blockDeviceFilepath}" as block device`);
 const { numberOfPhysicalBlocks, physicalBlockSize } = blockDeviceGeometry.geometry;
 console.log(`geometry: ${totalSizeHumanReadable} (${numberOfPhysicalBlocks} blocks of ${physicalBlockSize} bytes)`);
 
+// eslint-disable-next-line k13-engineering/no-new
+const socket = new WebSocket(serverUrl);
+
 createClient({
-  url: serverUrl,
+  socket,
   blockDevice
 });
