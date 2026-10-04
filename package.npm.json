@@ -1,0 +1,29 @@
+{
+  "name": "@k13engineering/remote-usb-storage-gadget",
+  "type": "module",
+  "description": "Expose a remote block device as USB mass storage gadget",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "dist/lib/index.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k13-engineering/remote-usb-storage-gadget.git"
+  },
+  "keywords": [
+    "usb",
+    "gadget",
+    "mass-storage",
+    "fuse"
+  ],
+  "author": "Simon Kadisch",
+  "license": "LGPL 2.1",
+  "bugs": {
+    "url": "https://github.com/k13-engineering/remote-usb-storage-gadget/issues"
+  },
+  "homepage": "https://github.com/k13-engineering/remote-usb-storage-gadget#readme"
+}

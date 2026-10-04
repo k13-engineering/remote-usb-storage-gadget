@@ -1,31 +1,10 @@
 {
-  "name": "@k13engineering/boilerplate",
   "type": "module",
-  "version": "0.0.5",
-  "description": "Boilerplate project",
-  "files": [
-    "dist"
-  ],
-  "main": "dist/lib/index.js",
   "scripts": {
     "build": "rm -rf dist/ && deno-node-build --root . --out dist/ --entry lib/index.ts",
     "test": "c8 --reporter lcov --reporter html --reporter text --all --src lib/ tsx test/index.js",
     "lint": "eslint ."
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/k13-engineering/node-boilerplate.git"
-  },
-  "keywords": [
-    "node",
-    "boilerplate"
-  ],
-  "author": "Simon Kadisch",
-  "license": "Unlicense",
-  "bugs": {
-    "url": "https://github.com/k13-engineering/node-boilerplate/issues"
-  },
-  "homepage": "https://github.com/k13-engineering/node-boilerplate#readme",
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/deep-equal": "^1.0.4",
