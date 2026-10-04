@@ -31,6 +31,10 @@ type TBlockDeviceJrpcRequest = {
   method: "queryGeometry",
 };
 
+// see the JSON-RPC 2.0 specification
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+const JSON_RPC_SERVER_ERROR = -32000;
+
 const createClient = ({
   socket,
   blockDevice,
@@ -101,19 +105,20 @@ const createClient = ({
     },
 
     handleRequest: async (req) => {
-      // console.log("request", req);
-
-      const handler = requestHandlers[req.method as keyof typeof requestHandlers];
-      if (handler === undefined) {
-        throw Error(`Unknown method: ${req.method}`);
+      if (!Object.hasOwn(requestHandlers, req.method)) {
+        return { error: { code: JSON_RPC_METHOD_NOT_FOUND, message: `Unknown method: ${req.method}` }, result: undefined };
       }
 
-      // @ts-expect-error types
-      const result = await handler(req);
+      const handler = requestHandlers[req.method as keyof typeof requestHandlers];
 
-      // console.log("result", result);
-
-      return result;
+      // the server waits for every response, so failures are reported instead of thrown
+      try {
+        // @ts-expect-error types
+        return await handler(req);
+      } catch (ex) {
+        logger.error(`${req.method} request failed`, ex);
+        return { error: { code: JSON_RPC_SERVER_ERROR, message: `${req.method} failed: ${(ex as Error).message}` }, result: undefined };
+      }
     },
 
     onConnectionError: ({ error }) => {

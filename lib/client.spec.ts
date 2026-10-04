@@ -13,6 +13,10 @@ const createFakeBlockDevice = () => {
   const blockDevice: TBlockDevice = {
     read: async ({ offset, length }) => {
       calls = [...calls, { method: "read", offset, length }];
+      if (offset >= 1024n * 1024n) {
+        throw Error("short read: expected 4 bytes, got 0");
+      }
+
       return Uint8Array.from(Array(length).keys());
     },
 
@@ -91,6 +95,35 @@ describe("client", () => {
     assert.deepStrictEqual(response, {
       error: undefined,
       result: { geometry: { physicalBlockSize: 512, numberOfPhysicalBlocks: 2048 } },
+    });
+  });
+
+  it("should report block device errors to the server", async () => {
+    const { server, recordingLogger } = createTestClient();
+
+    const { error, response } = await server.request({ method: "read", params: { offset: 2n * 1024n * 1024n, length: 4 } });
+
+    assert.strictEqual(error, undefined);
+    assert.deepStrictEqual(response, {
+      error: { code: -32000, message: "read failed: short read: expected 4 bytes, got 0", data: undefined },
+      result: undefined,
+    });
+    assert.deepStrictEqual(recordingLogger.lines(), [
+      "log: Connected",
+      "error: read request failed Error: short read: expected 4 bytes, got 0",
+    ]);
+  });
+
+  ["format", "toString"].forEach((method) => {
+    it(`should report the unknown method ${method} to the server`, async () => {
+      const { server } = createTestClient();
+
+      const { response } = await server.request({ method, params: {} });
+
+      assert.deepStrictEqual(response, {
+        error: { code: -32601, message: `Unknown method: ${method}`, data: undefined },
+        result: undefined,
+      });
     });
   });
 
