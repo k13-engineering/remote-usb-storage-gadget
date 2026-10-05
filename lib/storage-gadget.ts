@@ -83,12 +83,15 @@ const createStorageGadget = async ({
         throw Error("already detached");
       }
 
+      detached = true;
+
       system.logger.log("disabling mass storage");
       simpleMassStorageGadget.disable();
 
       system.logger.log("disable done");
 
-      detached = true;
+      // the virtual file must not reach the block device of a client that is gone anymore
+      await virtualFile.assign({ blockDevice: undefined });
       releaseAttachment();
     };
 

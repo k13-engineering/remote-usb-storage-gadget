@@ -76,6 +76,19 @@ describe("storage-gadget", () => {
     assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/UDC` }), "\n");
   });
 
+  it("should remove the block device from the virtual file when detaching", async () => {
+    const { storageGadget, mockFuse } = await createTestStorageGadget();
+    const attachment = await storageGadget.attach({ blockDevice });
+
+    await attachment.detach();
+    const response = await mockFuse.request({
+      opcode: "READ",
+      request: { nodeId: 2n, fh: 1n, offset: 0n, size: 4n, readFlags: 0n, lockOwner: 0n },
+    });
+
+    assert.deepStrictEqual(response, { forOpcode: "READ", unique: 1n, errorCode: -5, result: undefined });
+  });
+
   it("should detach only once", async () => {
     const { storageGadget } = await createTestStorageGadget();
     const attachment = await storageGadget.attach({ blockDevice });
