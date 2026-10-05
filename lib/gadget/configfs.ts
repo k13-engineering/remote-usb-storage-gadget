@@ -1,24 +1,24 @@
-import nodeFs from "node:fs";
 import nodePath from "node:path";
+import { realSystem, type TSystem } from "../system.ts";
 
-const createConfigfsDir = ({ path }: { path: string }) => {
-  console.log(`creating ${path}`);
-  nodeFs.mkdirSync(path, { recursive: true });
+const createConfigfsDir = ({ system, path }: { system: TSystem, path: string }) => {
+  system.logger.log(`creating ${path}`);
+  system.fs.mkdirSync(path, { recursive: true });
 };
 
-const writeConfigfsFile = ({ path, content }: { path: string, content: string }) => {
-  console.log(`writing ${content} --> ${path}`);
-  nodeFs.writeFileSync(path, content);
+const writeConfigfsFile = ({ system, path, content }: { system: TSystem, path: string, content: string }) => {
+  system.logger.log(`writing ${content} --> ${path}`);
+  system.fs.writeFileSync(path, content);
 };
 
-const writeConfigfsHexFile = ({ path, content }: { path: string, content: number }) => {
+const writeConfigfsHexFile = ({ system, path, content }: { system: TSystem, path: string, content: number }) => {
   const hexContent = `0x${content.toString(16)}`;
-  writeConfigfsFile({ path, content: hexContent });
+  writeConfigfsFile({ system, path, content: hexContent });
 };
 
-const createConfigfsLink = ({ path, target }: { path: string, target: string }) => {
-  console.log(`linking ${path} --> ${target}`);
-  nodeFs.symlinkSync(target, path);
+const createConfigfsLink = ({ system, path, target }: { system: TSystem, path: string, target: string }) => {
+  system.logger.log(`linking ${path} --> ${target}`);
+  system.fs.symlinkSync(target, path);
 };
 
 const CONFIGFS_MAGIC = 0x62656570;
@@ -64,57 +64,57 @@ type TGadgetConfigfsInstance = {
   disable: () => void;
 }
 
-const purgeGadgetStrings = ({ stringsDir }: { stringsDir: string }) => {
-  const strings = nodeFs.readdirSync(stringsDir);
+const purgeGadgetStrings = ({ system, stringsDir }: { system: TSystem, stringsDir: string }) => {
+  const strings = system.fs.readdirSync(stringsDir);
 
   strings.forEach((str) => {
 
     const strPath = nodePath.join(stringsDir, str);
 
-    console.log(`purging strings ${strPath}`);
+    system.logger.log(`purging strings ${strPath}`);
 
-    nodeFs.rmdirSync(strPath);
+    system.fs.rmdirSync(strPath);
   });
 };
 
-const purgeGadgetConfigs = ({ configsDir }: { configsDir: string }) => {
-  const configs = nodeFs.readdirSync(configsDir);
+const purgeGadgetConfigs = ({ system, configsDir }: { system: TSystem, configsDir: string }) => {
+  const configs = system.fs.readdirSync(configsDir);
   configs.forEach((config) => {
 
     const configPath = nodePath.join(configsDir, config);
 
-    console.log(`purging config ${configPath}`);
+    system.logger.log(`purging config ${configPath}`);
 
     const configStringsDir = nodePath.join(configPath, "strings");
-    purgeGadgetStrings({ stringsDir: configStringsDir });
+    purgeGadgetStrings({ system, stringsDir: configStringsDir });
 
-    const files = nodeFs.readdirSync(configPath, { withFileTypes: true });
+    const files = system.fs.readdirSync(configPath, { withFileTypes: true });
     const links = files.filter((file) => {
       return file.isSymbolicLink();
     });
     links.forEach((link) => {
-      nodeFs.unlinkSync(nodePath.join(configPath, link.name));
+      system.fs.unlinkSync(nodePath.join(configPath, link.name));
     });
 
-    nodeFs.rmdirSync(configPath);
+    system.fs.rmdirSync(configPath);
   });
 };
 
-const purgeGadgetFunctions = ({ functionsDir }: { functionsDir: string }) => {
-  const functions = nodeFs.readdirSync(functionsDir);
+const purgeGadgetFunctions = ({ system, functionsDir }: { system: TSystem, functionsDir: string }) => {
+  const functions = system.fs.readdirSync(functionsDir);
   functions.forEach((func) => {
 
     const funcPath = nodePath.join(functionsDir, func);
 
-    console.log(`purging function ${funcPath}`);
+    system.logger.log(`purging function ${funcPath}`);
 
-    nodeFs.rmdirSync(funcPath);
+    system.fs.rmdirSync(funcPath);
   });
 };
 
-const purgeGadget = ({ configfsGadgetPath }: { configfsGadgetPath: string }) => {
+const purgeGadget = ({ system, configfsGadgetPath }: { system: TSystem, configfsGadgetPath: string }) => {
   try {
-    nodeFs.statSync(configfsGadgetPath);
+    system.fs.statSync(configfsGadgetPath);
   } catch (ex) {
     // @ts-expect-error types
     if (ex.code === "ENOENT") {
@@ -124,32 +124,32 @@ const purgeGadget = ({ configfsGadgetPath }: { configfsGadgetPath: string }) => 
     throw ex;
   }
 
-  writeConfigfsFile({ path: nodePath.join(configfsGadgetPath, "UDC"), content: "" });
+  writeConfigfsFile({ system, path: nodePath.join(configfsGadgetPath, "UDC"), content: "" });
 
   const configsDir = nodePath.join(configfsGadgetPath, "configs");
-  purgeGadgetConfigs({ configsDir });
+  purgeGadgetConfigs({ system, configsDir });
 
   const functionsDir = nodePath.join(configfsGadgetPath, "functions");
-  purgeGadgetFunctions({ functionsDir });
+  purgeGadgetFunctions({ system, functionsDir });
 
   const stringsDir = nodePath.join(configfsGadgetPath, "strings");
-  purgeGadgetStrings({ stringsDir });
+  purgeGadgetStrings({ system, stringsDir });
 
-  console.log(`purging gadget ${configfsGadgetPath}`);
-  nodeFs.rmdirSync(configfsGadgetPath);
+  system.logger.log(`purging gadget ${configfsGadgetPath}`);
+  system.fs.rmdirSync(configfsGadgetPath);
 };
 
-const findConfigfsGadgetPath = ({ gadgetName }: { gadgetName: string }) => {
+const findConfigfsGadgetPath = ({ system, gadgetName }: { system: TSystem, gadgetName: string }) => {
   const configfsRoot = "/sys/kernel/config";
 
-  const configfsStat = nodeFs.statfsSync(configfsRoot);
+  const configfsStat = system.fs.statfsSync(configfsRoot);
   if (configfsStat.type !== CONFIGFS_MAGIC) {
     throw Error(`expected configfs at ${configfsRoot}, make sure configfs is mounted`);
   }
 
   const configfsGadgetRoot = `${configfsRoot}/usb_gadget`;
   try {
-    nodeFs.statSync(configfsGadgetRoot);
+    system.fs.statSync(configfsGadgetRoot);
   } catch (ex) {
     throw Error(`expected usb gadget config root at ${configfsGadgetRoot}, make sure kernel module libcomposite is loaded`, { cause: ex });
   }
@@ -159,33 +159,57 @@ const findConfigfsGadgetPath = ({ gadgetName }: { gadgetName: string }) => {
   return configfsGadgetPath;
 };
 
-const createGadgetAttributesFiles = ({ configfsGadgetPath, gadgetConfig }: { configfsGadgetPath: string, gadgetConfig: TGadgetConfig }) => {
-  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "idVendor"), content: gadgetConfig.idVendor });
-  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "idProduct"), content: gadgetConfig.idProduct });
-  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "bcdDevice"), content: gadgetConfig.bcdDevice });
-  writeConfigfsHexFile({ path: nodePath.join(configfsGadgetPath, "bcdUSB"), content: gadgetConfig.bcdUSB });
+const createGadgetAttributesFiles = ({
+  system,
+  configfsGadgetPath,
+  gadgetConfig,
+}: {
+  system: TSystem;
+  configfsGadgetPath: string;
+  gadgetConfig: TGadgetConfig;
+}) => {
+  writeConfigfsHexFile({ system, path: nodePath.join(configfsGadgetPath, "idVendor"), content: gadgetConfig.idVendor });
+  writeConfigfsHexFile({ system, path: nodePath.join(configfsGadgetPath, "idProduct"), content: gadgetConfig.idProduct });
+  writeConfigfsHexFile({ system, path: nodePath.join(configfsGadgetPath, "bcdDevice"), content: gadgetConfig.bcdDevice });
+  writeConfigfsHexFile({ system, path: nodePath.join(configfsGadgetPath, "bcdUSB"), content: gadgetConfig.bcdUSB });
 };
 
-const createStringsFiles = ({ configfsGadgetPath, strings }: { configfsGadgetPath: string, strings: TGadgetConfig["strings"] }) => {
+const createStringsFiles = ({
+  system,
+  configfsGadgetPath,
+  strings,
+}: {
+  system: TSystem;
+  configfsGadgetPath: string;
+  strings: TGadgetConfig["strings"];
+}) => {
   const stringsDir = nodePath.join(configfsGadgetPath, "strings", "0x409");
 
-  createConfigfsDir({ path: stringsDir });
-  writeConfigfsFile({ path: nodePath.join(stringsDir, "manufacturer"), content: strings["0x409"].manufacturer });
-  writeConfigfsFile({ path: nodePath.join(stringsDir, "product"), content: strings["0x409"].product });
-  writeConfigfsFile({ path: nodePath.join(stringsDir, "serialnumber"), content: strings["0x409"].serialnumber });
+  createConfigfsDir({ system, path: stringsDir });
+  writeConfigfsFile({ system, path: nodePath.join(stringsDir, "manufacturer"), content: strings["0x409"].manufacturer });
+  writeConfigfsFile({ system, path: nodePath.join(stringsDir, "product"), content: strings["0x409"].product });
+  writeConfigfsFile({ system, path: nodePath.join(stringsDir, "serialnumber"), content: strings["0x409"].serialnumber });
 };
 
-const createFunctionsFiles = ({ configfsGadgetPath, functions }: { configfsGadgetPath: string, functions: TGadgetConfig["functions"] }) => {
+const createFunctionsFiles = ({
+  system,
+  configfsGadgetPath,
+  functions,
+}: {
+  system: TSystem;
+  configfsGadgetPath: string;
+  functions: TGadgetConfig["functions"];
+}) => {
   const functionsDir = nodePath.join(configfsGadgetPath, "functions");
 
-  createConfigfsDir({ path: functionsDir });
+  createConfigfsDir({ system, path: functionsDir });
 
   let functionPathsByNames: { [key: string]: string } = {};
 
   Object.keys(functions).forEach((funcName) => {
     const funcPath = nodePath.join(functionsDir, funcName);
 
-    createConfigfsDir({ path: funcPath });
+    createConfigfsDir({ system, path: funcPath });
 
     functionPathsByNames = {
       ...functionPathsByNames,
@@ -195,70 +219,84 @@ const createFunctionsFiles = ({ configfsGadgetPath, functions }: { configfsGadge
     const funcConfig = functions[funcName];
     Object.keys(funcConfig).forEach((key) => {
       const content = `${funcConfig[key]}`;
-      writeConfigfsFile({ path: nodePath.join(funcPath, key), content });
+      writeConfigfsFile({ system, path: nodePath.join(funcPath, key), content });
     });
   });
 
   return { functionPathsByNames };
 };
 
-const createConfigsFiles = ({ configfsGadgetPath, configs }: { configfsGadgetPath: string, configs: TGadgetConfig["configs"] }) => {
+const createConfigsFiles = ({
+  system,
+  configfsGadgetPath,
+  configs,
+}: {
+  system: TSystem;
+  configfsGadgetPath: string;
+  configs: TGadgetConfig["configs"];
+}) => {
   const configsDir = nodePath.join(configfsGadgetPath, "configs");
 
-  createConfigfsDir({ path: configsDir });
+  createConfigfsDir({ system, path: configsDir });
 
   Object.keys(configs).forEach((configName) => {
     const configPath = nodePath.join(configsDir, configName);
 
-    createConfigfsDir({ path: configPath });
+    createConfigfsDir({ system, path: configPath });
 
     const config = configs[configName];
 
     config.functions.forEach((funcName) => {
-      createConfigfsLink({ path: nodePath.join(configPath, funcName), target: nodePath.join(configfsGadgetPath, "functions", funcName) });
+      createConfigfsLink({
+        system,
+        path: nodePath.join(configPath, funcName),
+        target: nodePath.join(configfsGadgetPath, "functions", funcName),
+      });
     });
 
     const stringsDir = nodePath.join(configPath, "strings", "0x409");
-    createConfigfsDir({ path: stringsDir });
-    writeConfigfsFile({ path: nodePath.join(stringsDir, "configuration"), content: config.strings["0x409"].configuration });
+    createConfigfsDir({ system, path: stringsDir });
+    writeConfigfsFile({ system, path: nodePath.join(stringsDir, "configuration"), content: config.strings["0x409"].configuration });
 
-    writeConfigfsFile({ path: nodePath.join(configPath, "bmAttributes"), content: `${config.bmAttributes}` });
-    writeConfigfsFile({ path: nodePath.join(configPath, "MaxPower"), content: `${config.MaxPower}` });
+    writeConfigfsFile({ system, path: nodePath.join(configPath, "bmAttributes"), content: `${config.bmAttributes}` });
+    writeConfigfsFile({ system, path: nodePath.join(configPath, "MaxPower"), content: `${config.MaxPower}` });
   });
 };
 
 const createGadgetViaConfigfs = ({
   gadgetName,
-  gadgetConfig
+  gadgetConfig,
+  system = realSystem,
 }: {
   gadgetName: string,
-  gadgetConfig: TGadgetConfig
+  gadgetConfig: TGadgetConfig,
+  system?: TSystem,
 }): TGadgetConfigfsInstance => {
 
-  const configfsGadgetPath = findConfigfsGadgetPath({ gadgetName });
+  const configfsGadgetPath = findConfigfsGadgetPath({ system, gadgetName });
   const udcPath = nodePath.join(configfsGadgetPath, "UDC");
 
-  purgeGadget({ configfsGadgetPath });
+  purgeGadget({ system, configfsGadgetPath });
 
-  nodeFs.mkdirSync(configfsGadgetPath);
-  createGadgetAttributesFiles({ configfsGadgetPath, gadgetConfig });
-  createStringsFiles({ configfsGadgetPath, strings: gadgetConfig.strings });
-  const { functionPathsByNames } = createFunctionsFiles({ configfsGadgetPath, functions: gadgetConfig.functions });
-  createConfigsFiles({ configfsGadgetPath, configs: gadgetConfig.configs });
+  system.fs.mkdirSync(configfsGadgetPath);
+  createGadgetAttributesFiles({ system, configfsGadgetPath, gadgetConfig });
+  createStringsFiles({ system, configfsGadgetPath, strings: gadgetConfig.strings });
+  const { functionPathsByNames } = createFunctionsFiles({ system, configfsGadgetPath, functions: gadgetConfig.functions });
+  createConfigsFiles({ system, configfsGadgetPath, configs: gadgetConfig.configs });
 
   const enable = ({ udc }: { udc: string }) => {
-    nodeFs.writeFileSync(udcPath, udc);
+    system.fs.writeFileSync(udcPath, udc);
   };
 
   const disable = () => {
-    const currentUdc = nodeFs.readFileSync(udcPath, "utf8");
+    const currentUdc = system.fs.readFileSync(udcPath, "utf8");
     if (currentUdc.trim() === "") {
       return;
     }
 
     // we can only write an empty string if we have a UDC,
     // otherwise this would yield an error
-    nodeFs.writeFileSync(udcPath, "\n");
+    system.fs.writeFileSync(udcPath, "\n");
   };
 
   return {

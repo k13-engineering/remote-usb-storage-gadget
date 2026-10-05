@@ -57,7 +57,7 @@ const toBytes = ({ content }: { content: string | Uint8Array }) => {
 
 // an in-memory filesystem with the semantics of configfs where this package relies on them
 // eslint-disable-next-line max-statements
-const createMockFilesystem = ({ configfsRoot }: { configfsRoot: string }) => {
+const createMockFilesystem = ({ configfsRoot, configfsMounted }: { configfsRoot: string; configfsMounted: boolean }) => {
   let nodes = new Map<string, TNode>([["/", { type: "directory", defaultGroup: false }]]);
   let writes: { path: string; content: string }[] = [];
   let closedFds: number[] = [];
@@ -93,12 +93,38 @@ const createMockFilesystem = ({ configfsRoot }: { configfsRoot: string }) => {
     }));
   };
 
+  const gadgetRoot = `${configfsRoot}/usb_gadget`;
+
+  const defaultGroupRules = [
+    { pattern: /^\/[^/]+$/, defaultGroups: ["configs", "functions", "strings"] },
+    { pattern: /^\/[^/]+\/configs\/[^/]+$/, defaultGroups: ["strings"] },
+    { pattern: /^\/[^/]+\/functions\/mass_storage\.[^/]+$/, defaultGroups: ["lun.0"] },
+  ];
+
+  const defaultGroupsOf = ({ path }: { path: string }) => {
+    if (!path.startsWith(`${gadgetRoot}/`)) {
+      return [];
+    }
+
+    const pathInGadgetRoot = path.slice(gadgetRoot.length);
+    return defaultGroupRules.filter(({ pattern }) => {
+      return pattern.test(pathInGadgetRoot);
+    }).flatMap(({ defaultGroups }) => {
+      return defaultGroups;
+    });
+  };
+
   const makeDirectory = ({ path, defaultGroup }: { path: string; defaultGroup: boolean }) => {
     setNode({ path, node: { type: "directory", defaultGroup }, syscall: "mkdir" });
 
-    // configfs creates the logical unit of a mass storage function itself
-    if (path.startsWith(configfsRoot) && /\/functions\/mass_storage\.[^/]+$/.test(path)) {
-      makeDirectory({ path: `${path}/lun.0`, defaultGroup: true });
+    // configfs creates some directories and attributes itself, e.g. the logical unit of a mass storage
+    // function, the strings of a configuration and the UDC attribute of a gadget, which is empty while unbound
+    defaultGroupsOf({ path }).forEach((name) => {
+      makeDirectory({ path: `${path}/${name}`, defaultGroup: true });
+    });
+
+    if (parentOf({ path }) === gadgetRoot) {
+      setNode({ path: `${path}/UDC`, node: { type: "file", content: textEncoder.encode("\n") }, syscall: "mkdir" });
     }
   };
 
@@ -268,7 +294,7 @@ const createMockFilesystem = ({ configfsRoot }: { configfsRoot: string }) => {
 
     statfsSync: (path: string) => {
       lookup({ path, syscall: "statfs" });
-      return { type: path.startsWith(configfsRoot) ? CONFIGFS_MAGIC : TMPFS_MAGIC };
+      return { type: configfsMounted && path.startsWith(configfsRoot) ? CONFIGFS_MAGIC : TMPFS_MAGIC };
     },
 
     closeSync: (fd: number) => {
@@ -327,7 +353,7 @@ const createMockFilesystem = ({ configfsRoot }: { configfsRoot: string }) => {
       return [...nodes.keys()].filter((path) => {
         return path.startsWith(`${under}/`);
       }).toSorted((a, b) => {
-        return a.localeCompare(b);
+        return a < b ? -1 : 1;
       });
     },
 
@@ -405,9 +431,9 @@ const createMockFuse = () => {
   };
 };
 
-const createMockSystem = () => {
+const createMockSystem = ({ configfsMounted = true }: { configfsMounted?: boolean } = {}) => {
   const configfsRoot = "/sys/kernel/config";
-  const filesystem = createMockFilesystem({ configfsRoot });
+  const filesystem = createMockFilesystem({ configfsRoot, configfsMounted });
   const mockFuse = createMockFuse();
   const recordingLogger = createRecordingLogger();
 
