@@ -1,9 +1,17 @@
-import nodeFs from "node:fs";
 import type { TBlockDevice } from "../client.ts";
+import { realSystem, type TSystem } from "../system.ts";
 
-const createBlockDeviceFromFilePath = async ({ filePath, blockSize }: { filePath: string, blockSize: number }): Promise<TBlockDevice> => {
+const createBlockDeviceFromFilePath = async ({
+  filePath,
+  blockSize,
+  system = realSystem,
+}: {
+  filePath: string;
+  blockSize: number;
+  system?: TSystem;
+}): Promise<TBlockDevice> => {
 
-  const fh = await nodeFs.promises.open(filePath, "r+");
+  const fh = await system.fs.promises.open(filePath, "r+");
   const stat = await fh.stat({ bigint: true });
 
   if (stat.size % BigInt(blockSize) !== 0n) {
