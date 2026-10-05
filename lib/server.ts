@@ -6,11 +6,21 @@ import type { TBlockDevice } from "./client.ts";
 import type { TStorageGadget, TStorageGadgetAttachment } from "./storage-gadget.ts";
 import type { TLogger } from "./system.ts";
 
-const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketBinaryJrpcHandle }): TBlockDevice => {
+const createBlockDeviceViaJrpc = ({
+  jrpc,
+  connectionClosed,
+}: {
+  jrpc: TWebsocketBinaryJrpcHandle;
+  connectionClosed: () => boolean;
+}): TBlockDevice => {
 
-  const read: TBlockDevice["read"] = async ({ offset, length }) => {
+  const request = async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
+    // the JRPC connection never answers requests made after it closed, so they would wait forever
+    if (connectionClosed()) {
+      throw Error(`${method} failed, the connection to the client is closed`);
+    }
 
-    const { error, response } = await jrpc.request({ method: "read", params: { offset, length } });
+    const { error, response } = await jrpc.request({ method, params });
     if (error !== undefined) {
       throw error;
     }
@@ -20,34 +30,20 @@ const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketBinaryJrpcHandle }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = response.result as any;
+    return response.result as any;
+  };
+
+  const read: TBlockDevice["read"] = async ({ offset, length }) => {
+    const result = await request({ method: "read", params: { offset, length } });
     return result.data.buffer.subarray(0, result.data.length());
   };
 
   const write: TBlockDevice["write"] = async ({ offset, data }) => {
-
-    const { error, response } = await jrpc.request({ method: "write", params: { offset, data } });
-    if (error !== undefined) {
-      throw error;
-    }
-
-    if (response.error !== undefined) {
-      throw response.error;
-    }
+    await request({ method: "write", params: { offset, data } });
   };
 
   const queryGeometry: TBlockDevice["queryGeometry"] = async () => {
-    const { error, response } = await jrpc.request({ method: "queryGeometry", params: {} });
-    if (error !== undefined) {
-      throw error;
-    }
-
-    if (response.error !== undefined) {
-      throw response.error;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = response.result as any;
+    const result = await request({ method: "queryGeometry", params: {} });
 
     return {
       geometry: {
@@ -109,9 +105,14 @@ const createUsbGadgetServer = ({ storageGadget, logger = console }: { storageGad
       return;
     }
 
-    const remoteBlockDevice = createBlockDeviceViaJrpc({ jrpc });
-
     let closed = false;
+
+    const remoteBlockDevice = createBlockDeviceViaJrpc({
+      jrpc,
+      connectionClosed: () => {
+        return closed;
+      },
+    });
     let storageGadgetAttachment: TStorageGadgetAttachment | undefined = undefined;
 
     storageGadget.attach({ blockDevice: remoteBlockDevice }).then((attachment) => {

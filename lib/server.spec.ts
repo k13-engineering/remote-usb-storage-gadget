@@ -179,7 +179,41 @@ describe("server", () => {
           message: `${operation} failed: disk failure`,
         });
       });
+
+      it(`should throw for ${operation} once the connection is closed`, async () => {
+        const { fakeStorageGadget, connect } = createTestSetup();
+        const { pair } = connect();
+        const blockDevice = fakeStorageGadget.attachedBlockDevice();
+        pair.client.close();
+
+        await settle();
+
+        await assert.rejects(run({ blockDevice }), Error(`${operation} failed, the connection to the client is closed`));
+      });
     });
+  });
+
+  it("should fail requests that are in flight when the connection closes", async () => {
+    const { fakeStorageGadget, server } = createTestSetup();
+    const pair = createFakeWebSocketPair();
+    // a client that never answers
+    createWebSocketBinaryJrpc({
+      socket: pair.client.socket,
+      handleRequest: async () => {
+        return { error: undefined, result: undefined };
+      },
+      handleNotification: () => {},
+      onConnectionError: () => {},
+      onRemoteClose: () => {},
+    });
+    pair.open();
+    server.serve({ socket: pair.server.socket as unknown as WebSocket, req });
+
+    const pendingRead = fakeStorageGadget.attachedBlockDevice().read({ offset: 0n, length: 4 });
+    await settle();
+    pair.client.close();
+
+    await assert.rejects(pendingRead, Error("connection closed"));
   });
 
   describe("connections", () => {
