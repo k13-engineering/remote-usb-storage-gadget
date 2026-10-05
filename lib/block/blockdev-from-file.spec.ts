@@ -75,12 +75,13 @@ describe("block/blockdev-from-file", () => {
     await assert.rejects(blockDevice.write({ offset: 0n, data: Uint8Array.from([1, 2]) }), Error("short write: expected 2 bytes, got 1"));
   });
 
-  it("should reject files whose size is not a multiple of the block size", async () => {
-    const { system } = createImageFile({ size: 1000 });
+  it("should reject and close files whose size is not a multiple of the block size", async () => {
+    const { system, filesystem } = createImageFile({ size: 1000 });
 
     await assert.rejects(
       createBlockDeviceFromFilePath({ filePath: "/tmp/disk.img", blockSize: 512, system }),
       Error("File size 1000 is not a multiple of block size 512")
     );
+    assert.strictEqual(filesystem.closedFds().length, 1);
   });
 });

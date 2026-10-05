@@ -15,6 +15,7 @@ const createBlockDeviceFromFilePath = async ({
   const stat = await fh.stat({ bigint: true });
 
   if (stat.size % BigInt(blockSize) !== 0n) {
+    await fh.close();
     throw Error(`File size ${stat.size} is not a multiple of block size ${blockSize}`);
   }
 
