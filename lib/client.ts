@@ -13,6 +13,8 @@ type TBlockDevice = {
   read: (args: { offset: bigint, length: number }) => Promise<Uint8Array>;
   write: (args: { offset: bigint, data: Uint8Array }) => Promise<void>;
   queryGeometry: () => Promise<{ geometry: TBlockDeviceGeometry }>;
+  // makes what was written durable, for a block device that answers writes before they are; the host's flushes wait
+  flush?: () => Promise<void>;
 };
 
 type TBlockDeviceJrpcRequest = {

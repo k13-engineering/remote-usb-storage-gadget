@@ -212,8 +212,15 @@ const createVirtualFileServerInterface = ({
       }
     },
 
+    // the host's flushes, e.g. SYNCHRONIZE CACHE, reach the block device, which may hold back what it was written
     fsync: async () => {
-      return { forOpcode: "FSYNC", errorCode: undefined, result: {} };
+      try {
+        await blockDevice()?.flush?.();
+        return { forOpcode: "FSYNC", errorCode: undefined, result: {} };
+      } catch (ex) {
+        logger.error(ex);
+        return { forOpcode: "FSYNC", errorCode: -EIO, result: undefined };
+      }
     },
 
     release: async () => {

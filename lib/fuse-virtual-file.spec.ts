@@ -300,6 +300,35 @@ describe("fuse-virtual-file", () => {
         }), [undefined, undefined, undefined]);
       });
 
+      it("should flush the block device on fsync, and fail fsync when the flush fails", async () => {
+        let flushes = 0;
+        const flushing = (fails: boolean): TBlockDevice => {
+          return {
+            read: async () => {
+              return new Uint8Array(0);
+            },
+            write: async () => {},
+            queryGeometry: async () => {
+              return { geometry: { physicalBlockSize: 512, numberOfPhysicalBlocks: 1n } };
+            },
+            flush: async () => {
+              flushes += 1;
+              if (fails) {
+                throw Error("the commander is gone");
+              }
+            },
+          };
+        };
+        const request = { ...requestBase, opcode: "FSYNC", nodeId: 2n, fh: 1n, fsyncFlags: 0n } as const;
+
+        const flushed = await createTestServerInterface({ blockDevice: flushing(false) }).serverInterface.fsync(request);
+        const failing = createTestServerInterface({ blockDevice: flushing(true) });
+        const failed = await failing.serverInterface.fsync(request);
+
+        assert.deepStrictEqual([flushed.errorCode, failed.errorCode, flushes], [undefined, EIO, 2]);
+        assert.deepStrictEqual(failing.recordingLogger.lines(), ["error: Error: the commander is gone"]);
+      });
+
       it("should only open the root directory as directory", async () => {
         const { serverInterface } = createTestServerInterface();
 
