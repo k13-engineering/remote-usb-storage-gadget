@@ -1,0 +1,96 @@
+import assert from "node:assert/strict";
+import { describe, it } from "mocha";
+
+import type { TBlockDevice } from "./client.ts";
+import { createStorageGadget } from "./storage-gadget.ts";
+import { createMockSystem } from "./test-utils/mock-system.ts";
+
+const gadgetPath = "/sys/kernel/config/usb_gadget/mygadget";
+
+const blockDevice: TBlockDevice = {
+  read: async ({ length }) => {
+    return new Uint8Array(length);
+  },
+  write: async () => {},
+  queryGeometry: async () => {
+    return { geometry: { physicalBlockSize: 512, numberOfPhysicalBlocks: 8n } };
+  },
+};
+
+const createTestStorageGadget = async ({ mockSystem = createMockSystem() }: { mockSystem?: ReturnType<typeof createMockSystem> } = {}) => {
+  const storageGadget = await createStorageGadget({
+    udc: "fcc00000.usb",
+
+    idVendor: 0x27df,
+    idProduct: 0x16c0,
+    bcdDevice: 0x0100,
+
+    manufacturer: "k13 engineering GmbH",
+    product: "Remote USB Storage Gadget",
+    serialnumber: "0001",
+
+    system: mockSystem.system,
+  });
+
+  return {
+    ...mockSystem,
+    storageGadget,
+  };
+};
+
+describe("storage-gadget", () => {
+  it("should create a disabled mass storage gadget", async () => {
+    const { storageGadget, filesystem } = await createTestStorageGadget();
+
+    assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/idVendor` }), "0x27df");
+    assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/strings/0x409/manufacturer` }), "k13 engineering GmbH");
+    assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/UDC` }), "\n");
+    assert.deepStrictEqual(storageGadget.status(), { attached: false });
+  });
+
+  it("should serve an attached block device through the virtual file", async () => {
+    const { storageGadget, filesystem } = await createTestStorageGadget();
+
+    await storageGadget.attach({ blockDevice });
+
+    assert.deepStrictEqual(storageGadget.status(), { attached: true });
+    assert.strictEqual(filesystem.statCalls(), 1);
+    assert.match(filesystem.readText({ path: `${gadgetPath}/functions/mass_storage.0/lun.0/file` }), /^\/proc\/4242\/fd\/\d+$/);
+    assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/UDC` }), "fcc00000.usb");
+  });
+
+  it("should only attach one block device at a time", async () => {
+    const { storageGadget } = await createTestStorageGadget();
+    await storageGadget.attach({ blockDevice });
+
+    await assert.rejects(storageGadget.attach({ blockDevice }), Error("already attached"));
+  });
+
+  it("should unbind the gadget when detaching", async () => {
+    const { storageGadget, filesystem } = await createTestStorageGadget();
+    const attachment = await storageGadget.attach({ blockDevice });
+
+    await attachment.detach();
+
+    assert.deepStrictEqual(storageGadget.status(), { attached: false });
+    assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/UDC` }), "\n");
+  });
+
+  it("should detach only once", async () => {
+    const { storageGadget } = await createTestStorageGadget();
+    const attachment = await storageGadget.attach({ blockDevice });
+    await attachment.detach();
+
+    await assert.rejects(attachment.detach(), Error("already detached"));
+  });
+
+  it("should attach again after detaching", async () => {
+    const { storageGadget } = await createTestStorageGadget();
+    const attachment = await storageGadget.attach({ blockDevice });
+    await attachment.detach();
+
+    await storageGadget.attach({ blockDevice });
+
+    assert.deepStrictEqual(storageGadget.status(), { attached: true });
+  });
+});

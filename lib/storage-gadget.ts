@@ -1,6 +1,7 @@
 import type { TBlockDevice } from "./client.ts";
 import { createFuseVirtualFile } from "./fuse-virtual-file.ts";
 import { createSimpleMassStorageGadget } from "./gadget/simple-mass-storage.ts";
+import { realSystem, type TSystem } from "./system.ts";
 
 const createStorageGadget = async ({
   udc,
@@ -11,8 +12,9 @@ const createStorageGadget = async ({
 
   manufacturer,
   product,
-  serialnumber
+  serialnumber,
 
+  system = realSystem,
 }: {
   udc: string,
 
@@ -23,10 +25,13 @@ const createStorageGadget = async ({
   manufacturer: string;
   product: string;
   serialnumber: string;
+
+  system?: TSystem;
 }) => {
 
   let attachedBlockDevice: TBlockDevice | undefined = undefined;
   const simpleMassStorageGadget = createSimpleMassStorageGadget({
+    system,
     gadgetName: "mygadget",
     massStorageConfig: {
       idVendor,
@@ -44,7 +49,7 @@ const createStorageGadget = async ({
     }
   });
 
-  const virtualFile = await createFuseVirtualFile();
+  const virtualFile = await createFuseVirtualFile({ system });
   simpleMassStorageGadget.disable();
 
   const attach = async ({ blockDevice }: { blockDevice: TBlockDevice }) => {
@@ -54,7 +59,7 @@ const createStorageGadget = async ({
 
     attachedBlockDevice = blockDevice;
 
-    console.log("assigning logical unit");
+    system.logger.log("assigning logical unit");
 
     await virtualFile.assign({ blockDevice });
     await simpleMassStorageGadget.assignLogicalUnitByFd({ fd: virtualFile.fd });
@@ -67,10 +72,10 @@ const createStorageGadget = async ({
         throw Error("already detached");
       }
 
-      console.log("disabling mass storage");
+      system.logger.log("disabling mass storage");
       simpleMassStorageGadget.disable();
 
-      console.log("disable done");
+      system.logger.log("disable done");
 
       detached = true;
       attachedBlockDevice = undefined;
