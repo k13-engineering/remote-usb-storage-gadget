@@ -4,6 +4,7 @@ import { createWebSocketBinaryJrpc } from "./jrpc/websocket.ts";
 import type { TWebsocketBinaryJrpcHandle } from "./jrpc/websocket.ts";
 import type { TBlockDevice } from "./client.ts";
 import type { TStorageGadget, TStorageGadgetAttachment } from "./storage-gadget.ts";
+import type { TLogger } from "./system.ts";
 
 const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketBinaryJrpcHandle }): TBlockDevice => {
 
@@ -63,21 +64,21 @@ const createBlockDeviceViaJrpc = ({ jrpc }: { jrpc: TWebsocketBinaryJrpcHandle }
   };
 };
 
-const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadget }) => {
+const createUsbGadgetServer = ({ storageGadget, logger = console }: { storageGadget: TStorageGadget; logger?: TLogger }) => {
 
   const serve = ({ socket, req }: { socket: WebSocket, req: IncomingMessage }) => {
 
-    console.log(`incoming connection from ${req.socket.remoteAddress}:${req.socket.remotePort}`);
+    logger.log(`incoming connection from ${req.socket.remoteAddress}:${req.socket.remotePort}`);
 
     const jrpc = createWebSocketBinaryJrpc({
       socket,
 
       handleNotification: async ({ method, params }) => {
-        console.log("notification", { method, params });
+        logger.log("notification", { method, params });
       },
 
       handleRequest: async ({ method, params }) => {
-        console.log("request", { method, params });
+        logger.log("request", { method, params });
 
         return {
           error: undefined,
@@ -86,17 +87,17 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
       },
 
       onConnectionError: ({ error }) => {
-        console.error(`Connection error: ${error.message}`);
+        logger.error(`Connection error: ${error.message}`);
       },
 
       onRemoteClose: () => {
-        console.log("Remote closed the connection");
+        logger.log("Remote closed the connection");
       }
     });
 
     const status = storageGadget.status();
     if (status.attached) {
-      console.log("rejecting connection, another client is already connected");
+      logger.log("rejecting connection, another client is already connected");
 
       jrpc.notify({
         method: "error",
@@ -121,14 +122,13 @@ const createUsbGadgetServer = ({ storageGadget }: { storageGadget: TStorageGadge
     });
 
     socket.on("error", (error: Error) => {
-      console.error(`Error: ${error.message}`);
+      logger.error(`Error: ${error.message}`);
     });
 
     socket.on("close", () => {
       closed = true;
-      console.log("Connection closed");
+      logger.log("Connection closed");
 
-      console.log({ storageGadgetAttachment });
       storageGadgetAttachment?.detach();
     });
   };
