@@ -84,6 +84,39 @@ describe("storage-gadget", () => {
     await assert.rejects(attachment.detach(), Error("already detached"));
   });
 
+  it("should not stay attached if attaching fails", async () => {
+    const mockSystem = createMockSystem();
+    const { writeFile } = mockSystem.system.fs.promises;
+    let failWrites = true;
+    const failingMockSystem = {
+      ...mockSystem,
+      system: {
+        ...mockSystem.system,
+        fs: {
+          ...mockSystem.system.fs,
+          promises: {
+            ...mockSystem.system.fs.promises,
+            writeFile: (async (...args: Parameters<typeof writeFile>) => {
+              if (failWrites) {
+                throw Error("EBUSY: resource busy");
+              }
+
+              return writeFile(...args);
+            }) as typeof writeFile,
+          },
+        },
+      },
+    };
+    const { storageGadget } = await createTestStorageGadget({ mockSystem: failingMockSystem });
+
+    await assert.rejects(storageGadget.attach({ blockDevice }), Error("EBUSY: resource busy"));
+    assert.deepStrictEqual(storageGadget.status(), { attached: false });
+
+    failWrites = false;
+    await storageGadget.attach({ blockDevice });
+    assert.deepStrictEqual(storageGadget.status(), { attached: true });
+  });
+
   it("should attach again after detaching", async () => {
     const { storageGadget } = await createTestStorageGadget();
     const attachment = await storageGadget.attach({ blockDevice });

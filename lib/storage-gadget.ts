@@ -52,6 +52,11 @@ const createStorageGadget = async ({
   const virtualFile = await createFuseVirtualFile({ system });
   simpleMassStorageGadget.disable();
 
+  // attachedBlockDevice is set synchronously when attaching starts, so concurrent attaches fail instead of racing
+  const releaseAttachment = () => {
+    attachedBlockDevice = undefined;
+  };
+
   const attach = async ({ blockDevice }: { blockDevice: TBlockDevice }) => {
     if (attachedBlockDevice !== undefined) {
       throw Error("already attached");
@@ -59,11 +64,17 @@ const createStorageGadget = async ({
 
     attachedBlockDevice = blockDevice;
 
-    system.logger.log("assigning logical unit");
+    try {
+      system.logger.log("assigning logical unit");
 
-    await virtualFile.assign({ blockDevice });
-    await simpleMassStorageGadget.assignLogicalUnitByFd({ fd: virtualFile.fd });
-    simpleMassStorageGadget.enable({ udc });
+      await virtualFile.assign({ blockDevice });
+      await simpleMassStorageGadget.assignLogicalUnitByFd({ fd: virtualFile.fd });
+      simpleMassStorageGadget.enable({ udc });
+    } catch (ex) {
+      // nothing got attached, so the next client can try again
+      releaseAttachment();
+      throw ex;
+    }
 
     let detached = false;
 
@@ -78,7 +89,7 @@ const createStorageGadget = async ({
       system.logger.log("disable done");
 
       detached = true;
-      attachedBlockDevice = undefined;
+      releaseAttachment();
     };
 
     return {
