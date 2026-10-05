@@ -8,7 +8,7 @@ import {
   type TFuseServerInterface,
 } from "@k13engineering/linux-fuse";
 import type { TBlockDevice } from "./client.ts";
-import { realSystem, type TSystem } from "./system.ts";
+import { realSystem, type TLogger, type TSystem } from "./system.ts";
 
 const { EIO, ENOENT, ENOSYS, ENOTDIR } = nodeOs.constants.errno;
 
@@ -54,7 +54,13 @@ const notImplemented = <T extends string>({ forOpcode }: { forOpcode: T }) => {
 };
 
 // a filesystem with a single file in its root directory, which reads from and writes to the assigned block device
-const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => TBlockDevice | undefined }): TFuseServerInterface => {
+const createVirtualFileServerInterface = ({
+  blockDevice,
+  logger,
+}: {
+  blockDevice: () => TBlockDevice | undefined;
+  logger: TLogger;
+}): TFuseServerInterface => {
 
   let nextFileHandle = 1n;
 
@@ -68,7 +74,7 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
       const { geometry } = await currentBlockDevice.queryGeometry();
       return geometry.numberOfPhysicalBlocks * BigInt(geometry.physicalBlockSize);
     } catch (ex) {
-      console.error(ex);
+      logger.error(ex);
       return 0n;
     }
   };
@@ -102,7 +108,7 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
   const blockDeviceOrError = ({ operation }: { operation: string }) => {
     const currentBlockDevice = blockDevice();
     if (currentBlockDevice === undefined) {
-      console.error(`${operation} without block device`);
+      logger.error(`${operation} without block device`);
     }
 
     return currentBlockDevice;
@@ -183,7 +189,7 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
         const data = await currentBlockDevice.read({ offset, length: Number(size) });
         return { forOpcode: "READ", errorCode: undefined, result: { data } };
       } catch (ex) {
-        console.error(ex);
+        logger.error(ex);
         return { forOpcode: "READ", errorCode: -EIO, result: undefined };
       }
     },
@@ -198,7 +204,7 @@ const createVirtualFileServerInterface = ({ blockDevice }: { blockDevice: () => 
         await currentBlockDevice.write({ offset, data });
         return { forOpcode: "WRITE", errorCode: undefined, result: { bytesWritten: BigInt(data.length) } };
       } catch (ex) {
-        console.error(ex);
+        logger.error(ex);
         return { forOpcode: "WRITE", errorCode: -EIO, result: undefined };
       }
     },
@@ -314,6 +320,7 @@ const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem
     blockDevice: () => {
       return blockDevice;
     },
+    logger: system.logger,
   });
 
   const { mountFd } = mountVirtualFileSystem({ system, serverInterface });
@@ -337,13 +344,13 @@ const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem
   const flushProbe = await system.fs.promises.open(`/proc/${system.pid}/fd/${fd}`, "r");
   await flushProbe.close();
 
-  console.log("fd is", fd);
+  system.logger.log("fd is", fd);
 
   const fuseBlockDebugLink = "/tmp/fuse-block-debug";
   await system.fs.promises.rm(fuseBlockDebugLink, { force: true });
   await system.fs.promises.symlink(`/proc/${system.pid}/fd/${fd}`, fuseBlockDebugLink);
 
-  console.log(`fuse block device for debugging is available at ${fuseBlockDebugLink}`);
+  system.logger.log(`fuse block device for debugging is available at ${fuseBlockDebugLink}`);
 
   const assign = async ({ blockDevice: newBlockDevice }: { blockDevice: TBlockDevice | undefined }) => {
     blockDevice = newBlockDevice;

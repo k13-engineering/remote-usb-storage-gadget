@@ -1,7 +1,6 @@
 // the mock implements Node.js APIs, which take positional parameters
 /* eslint-disable k13-engineering/prefer-single-object-parameters */
 
-import type { TFuseServerInterface } from "@k13engineering/linux-fuse";
 import type { TSystem } from "../system.ts";
 import { createRecordingLogger } from "./recording-logger.ts";
 
@@ -61,6 +60,7 @@ const createMockFilesystem = ({ configfsRoot, configfsMounted }: { configfsRoot:
   let nodes = new Map<string, TNode>([["/", { type: "directory", defaultGroup: false }]]);
   let writes: { path: string; content: string }[] = [];
   let closedFds: number[] = [];
+  let openedPaths: string[] = [];
 
   const lookup = ({ path, syscall }: { path: string; syscall: string }) => {
     const node = nodes.get(path);
@@ -255,6 +255,22 @@ const createMockFilesystem = ({ configfsRoot, configfsMounted }: { configfsRoot:
   };
 
   let nextFd = 20;
+  let statCalls = 0;
+
+  const createProcFileHandle = ({ fd }: { fd: number }) => {
+    return {
+      fd,
+
+      stat: async () => {
+        statCalls += 1;
+        return { size: 0 };
+      },
+
+      close: async () => {
+        closedFds = [...closedFds, fd];
+      },
+    };
+  };
 
   const fs = {
     mkdirSync,
@@ -307,8 +323,15 @@ const createMockFilesystem = ({ configfsRoot, configfsMounted }: { configfsRoot:
       },
 
       open: async (path: string) => {
-        lookup({ path, syscall: "open" });
+        openedPaths = [...openedPaths, path];
         nextFd += 1;
+
+        // like the magic links in procfs, which are not part of this filesystem, such paths can always be opened
+        if (path.startsWith("/proc/")) {
+          return createProcFileHandle({ fd: nextFd });
+        }
+
+        lookup({ path, syscall: "open" });
         return createFileHandle({ path, fd: nextFd });
       },
 
@@ -363,6 +386,14 @@ const createMockFilesystem = ({ configfsRoot, configfsMounted }: { configfsRoot:
 
     closedFds: () => {
       return closedFds;
+    },
+
+    openedPaths: () => {
+      return openedPaths;
+    },
+
+    statCalls: () => {
+      return statCalls;
     },
   };
 };
@@ -419,7 +450,7 @@ const createMockFuse = () => {
     },
 
     // sends a request to the filesystem as the kernel would
-    request: async <T extends keyof TFuseServerInterface>({ opcode, request }: { opcode: T; request: object }) => {
+    request: async ({ opcode, request }: { opcode: string; request: object }) => {
       if (requestHandler === undefined) {
         throw Error("no filesystem created");
       }
