@@ -410,6 +410,36 @@ describe("fuse-virtual-file", () => {
       assert.deepStrictEqual(response, { forOpcode: "READ", unique: 1n, errorCode: undefined, result: { data: Uint8Array.from([0, 1]) } });
     });
 
+    it("should abort the fuse connection", async () => {
+      const { system, mockFuse } = createMockSystem();
+      const virtualFile = await createFuseVirtualFile({ system });
+
+      virtualFile.abort();
+
+      assert.strictEqual(mockFuse.isClosed(), true);
+    });
+
+    it("should abort the fuse connection and close the virtual file when closing", async () => {
+      const { system, mockFuse, filesystem } = createMockSystem();
+      const virtualFile = await createFuseVirtualFile({ system });
+
+      await virtualFile.close();
+
+      assert.strictEqual(mockFuse.isClosed(), true);
+      assert.strictEqual(filesystem.closedFds().at(-1), virtualFile.fd);
+    });
+
+    it("should abort the fuse connection only once", async () => {
+      const { system, filesystem } = createMockSystem();
+      const virtualFile = await createFuseVirtualFile({ system });
+
+      virtualFile.abort();
+      virtualFile.abort();
+      await virtualFile.close();
+
+      assert.strictEqual(filesystem.closedFds().at(-1), virtualFile.fd);
+    });
+
     it("should fail if the fuse device cannot be opened", async () => {
       const { system, mockFuse } = createMockSystem();
       mockFuse.failOpen({ error: Error("failed to open \"/dev/fuse\"") });
@@ -425,8 +455,8 @@ describe("fuse-virtual-file", () => {
       assert.strictEqual(mockFuse.isClosed(), true);
     });
 
-    it("should close the mount if the virtual file cannot be opened", async () => {
-      const { system, filesystem } = createMockSystem();
+    it("should close the mount and abort the fuse connection if the virtual file cannot be opened", async () => {
+      const { system, mockFuse, filesystem } = createMockSystem();
       const failingSystem = {
         ...system,
         fs: {
@@ -442,6 +472,28 @@ describe("fuse-virtual-file", () => {
 
       await assert.rejects(createFuseVirtualFile({ system: failingSystem }), Error("ENOENT"));
       assert.deepStrictEqual(filesystem.closedFds(), [10]);
+      assert.strictEqual(mockFuse.isClosed(), true);
+    });
+
+    it("should abort the fuse connection and close the virtual file if it cannot be prepared", async () => {
+      const { system, mockFuse, filesystem } = createMockSystem();
+      const failingSystem = {
+        ...system,
+        fs: {
+          ...system.fs,
+          promises: {
+            ...system.fs.promises,
+            symlink: async () => {
+              throw Error("EROFS");
+            },
+          },
+        },
+      };
+
+      await assert.rejects(createFuseVirtualFile({ system: failingSystem }), Error("EROFS"));
+      assert.strictEqual(mockFuse.isClosed(), true);
+      assert.deepStrictEqual(filesystem.openedPaths(), ["/proc/4242/fd/10/virtual", "/proc/4242/fd/21"]);
+      assert.deepStrictEqual(filesystem.closedFds(), [10, 22, 21]);
     });
   });
 });

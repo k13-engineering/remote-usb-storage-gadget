@@ -309,35 +309,22 @@ const mountVirtualFileSystem = ({ system, serverInterface }: { system: TSystem; 
     throw mountError;
   }
 
-  return { mountFd };
+  return { fileSystem, mountFd };
 };
 
-const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem } = {}) => {
+type TFileHandle = Awaited<ReturnType<TSystem["fs"]["promises"]["open"]>>;
 
-  let blockDevice: TBlockDevice | undefined = undefined;
+const openVirtualFileOnMount = async ({ system, mountFd }: { system: TSystem; mountFd: number }) => {
+  try {
+    // must not block the event loop, which serves the requests of the open
+    return await system.fs.promises.open(`/proc/${system.pid}/fd/${mountFd}/${virtualFileName}`, "r+");
+  } finally {
+    // the open file keeps the mount alive
+    system.fs.closeSync(mountFd);
+  }
+};
 
-  const serverInterface = createVirtualFileServerInterface({
-    blockDevice: () => {
-      return blockDevice;
-    },
-    logger: system.logger,
-  });
-
-  const { mountFd } = mountVirtualFileSystem({ system, serverInterface });
-
-  const openVirtualFile = async () => {
-    try {
-      // must not block the event loop, which serves the requests of the open
-      return await system.fs.promises.open(`/proc/${system.pid}/fd/${mountFd}/${virtualFileName}`, "r+");
-    } finally {
-      // the open file keeps the mount alive
-      system.fs.closeSync(mountFd);
-    }
-  };
-
-  const virtualFile = await openVirtualFile();
-  const { fd } = virtualFile;
-
+const prepareVirtualFile = async ({ system, fd }: { system: TSystem; fd: number }) => {
   // closing a file on fuse waits for the reply to FLUSH without a timeout. If this process exited with the
   // virtual file open, nobody could reply anymore and the exit would hang forever. Closing a second handle
   // now lets the kernel learn that FLUSH is not implemented, so it never sends it again
@@ -351,6 +338,52 @@ const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem
   await system.fs.promises.symlink(`/proc/${system.pid}/fd/${fd}`, fuseBlockDebugLink);
 
   system.logger.log(`fuse block device for debugging is available at ${fuseBlockDebugLink}`);
+};
+
+// aborts the fuse connection if the virtual file cannot be opened and prepared, so nothing is left behind
+const openVirtualFile = async ({ system, mountFd, abort }: { system: TSystem; mountFd: number; abort: () => void }) => {
+  let virtualFile: TFileHandle | undefined = undefined;
+
+  try {
+    virtualFile = await openVirtualFileOnMount({ system, mountFd });
+    await prepareVirtualFile({ system, fd: virtualFile.fd });
+    return virtualFile;
+  } catch (ex) {
+    abort();
+    await virtualFile?.close();
+    throw ex;
+  }
+};
+
+const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem } = {}) => {
+
+  let blockDevice: TBlockDevice | undefined = undefined;
+
+  const serverInterface = createVirtualFileServerInterface({
+    blockDevice: () => {
+      return blockDevice;
+    },
+    logger: system.logger,
+  });
+
+  const { fileSystem, mountFd } = mountVirtualFileSystem({ system, serverInterface });
+
+  let aborted = false;
+
+  // closing the fuse device aborts the connection. The kernel then fails all requests to the virtual file
+  // itself, also those that already wait for a reply, so unlike replying this does not need the event loop.
+  // The virtual file cannot be used anymore afterwards
+  const abort = () => {
+    if (aborted) {
+      return;
+    }
+
+    aborted = true;
+    fileSystem.close();
+  };
+
+  const virtualFile = await openVirtualFile({ system, mountFd, abort });
+  const { fd } = virtualFile;
 
   const assign = async ({ blockDevice: newBlockDevice }: { blockDevice: TBlockDevice | undefined }) => {
     blockDevice = newBlockDevice;
@@ -359,14 +392,28 @@ const createFuseVirtualFile = async ({ system = realSystem }: { system?: TSystem
     await virtualFile.stat();
   };
 
+  // aborts the connection if that did not happen yet and closes the virtual file of this process
+  const close = async () => {
+    abort();
+    await virtualFile.close();
+  };
+
   return {
     assign,
+    abort,
+    close,
 
     fd
   };
 };
 
+type TFuseVirtualFile = Awaited<ReturnType<typeof createFuseVirtualFile>>;
+
 export {
   createFuseVirtualFile,
   createVirtualFileServerInterface,
+};
+
+export type {
+  TFuseVirtualFile,
 };

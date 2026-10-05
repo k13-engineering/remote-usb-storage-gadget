@@ -48,6 +48,15 @@ describe("storage-gadget", () => {
     assert.deepStrictEqual(storageGadget.status(), { attached: false });
   });
 
+  it("should mount a virtual file only when attaching", async () => {
+    const { storageGadget, mockFuse } = await createTestStorageGadget();
+    assert.strictEqual(mockFuse.mountOptions().length, 0);
+
+    await storageGadget.attach({ blockDevice });
+
+    assert.strictEqual(mockFuse.mountOptions().length, 1);
+  });
+
   it("should serve an attached block device through the virtual file", async () => {
     const { storageGadget, filesystem } = await createTestStorageGadget();
 
@@ -76,17 +85,34 @@ describe("storage-gadget", () => {
     assert.strictEqual(filesystem.readText({ path: `${gadgetPath}/UDC` }), "\n");
   });
 
-  it("should remove the block device from the virtual file when detaching", async () => {
-    const { storageGadget, mockFuse } = await createTestStorageGadget();
+  it("should abort the virtual file before unbinding the gadget when detaching", async () => {
+    const mockSystem = createMockSystem();
+    const { writeFileSync } = mockSystem.system.fs;
+    let abortedWhenUnbinding: boolean | undefined = undefined;
+    const recordingMockSystem = {
+      ...mockSystem,
+      system: {
+        ...mockSystem.system,
+        fs: {
+          ...mockSystem.system.fs,
+          writeFileSync: ((...args: Parameters<typeof writeFileSync>) => {
+            if (args[0] === `${gadgetPath}/UDC` && args[1] === "\n") {
+              abortedWhenUnbinding = mockSystem.mockFuse.isClosed();
+            }
+
+            writeFileSync(...args);
+          }) as typeof writeFileSync,
+        },
+      },
+    };
+    const { storageGadget, filesystem } = await createTestStorageGadget({ mockSystem: recordingMockSystem });
     const attachment = await storageGadget.attach({ blockDevice });
+    const virtualFilePath = filesystem.readText({ path: `${gadgetPath}/functions/mass_storage.0/lun.0/file` });
 
     await attachment.detach();
-    const response = await mockFuse.request({
-      opcode: "READ",
-      request: { nodeId: 2n, fh: 1n, offset: 0n, size: 4n, readFlags: 0n, lockOwner: 0n },
-    });
 
-    assert.deepStrictEqual(response, { forOpcode: "READ", unique: 1n, errorCode: -5, result: undefined });
+    assert.strictEqual(abortedWhenUnbinding, true);
+    assert.strictEqual(`/proc/4242/fd/${filesystem.closedFds().at(-1)}`, virtualFilePath);
   });
 
   it("should detach only once", async () => {
@@ -124,19 +150,21 @@ describe("storage-gadget", () => {
 
     await assert.rejects(storageGadget.attach({ blockDevice }), Error("EBUSY: resource busy"));
     assert.deepStrictEqual(storageGadget.status(), { attached: false });
+    assert.strictEqual(failingMockSystem.mockFuse.isClosed(), true);
 
     failWrites = false;
     await storageGadget.attach({ blockDevice });
     assert.deepStrictEqual(storageGadget.status(), { attached: true });
   });
 
-  it("should attach again after detaching", async () => {
-    const { storageGadget } = await createTestStorageGadget();
+  it("should attach again with a new virtual file after detaching", async () => {
+    const { storageGadget, mockFuse } = await createTestStorageGadget();
     const attachment = await storageGadget.attach({ blockDevice });
     await attachment.detach();
 
     await storageGadget.attach({ blockDevice });
 
     assert.deepStrictEqual(storageGadget.status(), { attached: true });
+    assert.deepStrictEqual(mockFuse.closedStates(), [true, false]);
   });
 });

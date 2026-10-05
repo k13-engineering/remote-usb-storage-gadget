@@ -1,5 +1,5 @@
 import type { TBlockDevice } from "./client.ts";
-import { createFuseVirtualFile } from "./fuse-virtual-file.ts";
+import { createFuseVirtualFile, type TFuseVirtualFile } from "./fuse-virtual-file.ts";
 import { createSimpleMassStorageGadget } from "./gadget/simple-mass-storage.ts";
 import { realSystem, type TSystem } from "./system.ts";
 
@@ -49,12 +49,29 @@ const createStorageGadget = async ({
     }
   });
 
-  const virtualFile = await createFuseVirtualFile({ system });
   simpleMassStorageGadget.disable();
 
   // attachedBlockDevice is set synchronously when attaching starts, so concurrent attaches fail instead of racing
   const releaseAttachment = () => {
     attachedBlockDevice = undefined;
+  };
+
+  // detaching aborts the virtual file for good, so each attachment gets its own
+  const bindVirtualFile = async ({ blockDevice }: { blockDevice: TBlockDevice }) => {
+    const virtualFile = await createFuseVirtualFile({ system });
+
+    try {
+      system.logger.log("assigning logical unit");
+
+      await virtualFile.assign({ blockDevice });
+      await simpleMassStorageGadget.assignLogicalUnitByFd({ fd: virtualFile.fd });
+      simpleMassStorageGadget.enable({ udc });
+    } catch (ex) {
+      await virtualFile.close();
+      throw ex;
+    }
+
+    return virtualFile;
   };
 
   const attach = async ({ blockDevice }: { blockDevice: TBlockDevice }) => {
@@ -64,12 +81,10 @@ const createStorageGadget = async ({
 
     attachedBlockDevice = blockDevice;
 
-    try {
-      system.logger.log("assigning logical unit");
+    let virtualFile: TFuseVirtualFile;
 
-      await virtualFile.assign({ blockDevice });
-      await simpleMassStorageGadget.assignLogicalUnitByFd({ fd: virtualFile.fd });
-      simpleMassStorageGadget.enable({ udc });
+    try {
+      virtualFile = await bindVirtualFile({ blockDevice });
     } catch (ex) {
       // nothing got attached, so the next client can try again
       releaseAttachment();
@@ -85,13 +100,18 @@ const createStorageGadget = async ({
 
       detached = true;
 
+      // unbinding waits for the mass storage thread, which may itself wait for the reply to a request to the
+      // virtual file. This process cannot reply while it is blocked in unbinding, so the fuse connection is
+      // aborted first, then the kernel fails such requests without a reply
+      system.logger.log("aborting virtual file");
+      virtualFile.abort();
+
       system.logger.log("disabling mass storage");
       simpleMassStorageGadget.disable();
 
       system.logger.log("disable done");
 
-      // the virtual file must not reach the block device of a client that is gone anymore
-      await virtualFile.assign({ blockDevice: undefined });
+      await virtualFile.close();
       releaseAttachment();
     };
 

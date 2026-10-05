@@ -404,7 +404,8 @@ const createMockFuse = () => {
   let mountResult: TMountResult = { error: undefined, mountFd: 10 };
   let openFuseFdError: Error | undefined = undefined;
   let mountOptions: unknown[] = [];
-  let closed = false;
+  // one entry per created filesystem, whether it is closed
+  let closedStates: boolean[] = [];
 
   const fuse = {
     openFuseFd: () => {
@@ -417,6 +418,8 @@ const createMockFuse = () => {
 
     createFuseFileSystem: (options: { fuseFd: number; requestHandler: TRequestHandler }) => {
       requestHandler = options.requestHandler;
+      const index = closedStates.length;
+      closedStates = [...closedStates, false];
 
       return {
         mountDetached: (args: unknown) => {
@@ -424,7 +427,11 @@ const createMockFuse = () => {
           return mountResult;
         },
         close: () => {
-          closed = true;
+          if (closedStates[index]) {
+            throw Error("already closed");
+          }
+
+          closedStates = closedStates.with(index, true);
         },
       };
     },
@@ -445,8 +452,13 @@ const createMockFuse = () => {
       return mountOptions;
     },
 
+    // whether the filesystem created last is closed
     isClosed: () => {
-      return closed;
+      return closedStates.at(-1) === true;
+    },
+
+    closedStates: () => {
+      return closedStates;
     },
 
     // sends a request to the filesystem as the kernel would
