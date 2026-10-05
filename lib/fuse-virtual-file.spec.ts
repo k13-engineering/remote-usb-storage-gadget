@@ -107,15 +107,16 @@ const notImplementedMethods: (keyof TFuseServerInterface)[] = [
 describe("fuse-virtual-file", () => {
   describe("filesystem", () => {
     describe("lifecycle", () => {
-      it("should negotiate asynchronous reads and a large readahead", async () => {
+      it("should negotiate asynchronous reads, big writes and a large readahead", async () => {
         const { serverInterface } = createTestServerInterface();
 
         const response = await serverInterface.init({ ...requestBase, opcode: "INIT", major: 7n, minor: 45n });
 
+        // FUSE_ASYNC_READ | FUSE_BIG_WRITES
         assert.deepStrictEqual(response, {
           forOpcode: "INIT",
           errorCode: undefined,
-          result: { ...createDefaultInitResult(), flags: 1n, maxReadahead: 131_072n },
+          result: { ...createDefaultInitResult(), flags: 33n, maxReadahead: 131_072n },
         });
       });
 

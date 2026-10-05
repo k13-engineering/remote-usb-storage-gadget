@@ -22,6 +22,9 @@ const S_IFREG = 0o100000n;
 // see FUSE_ASYNC_READ in <linux/fuse.h>, lets the kernel issue several reads at once
 const FUSE_ASYNC_READ = 1n << 0n;
 
+// see FUSE_BIG_WRITES in <linux/fuse.h>, without it the kernel sends a separate write for every page
+const FUSE_BIG_WRITES = 1n << 5n;
+
 type TFuseAttr = Extract<Awaited<ReturnType<TFuseServerInterface["getattr"]>>, { errorCode: undefined }>["result"]["attr"];
 
 const nowNsec = () => {
@@ -128,7 +131,7 @@ const createVirtualFileServerInterface = ({
         result: {
           ...createDefaultInitResult(),
           maxReadahead: 128n * 1024n,
-          flags: FUSE_ASYNC_READ,
+          flags: FUSE_ASYNC_READ | FUSE_BIG_WRITES,
         },
       };
     },
