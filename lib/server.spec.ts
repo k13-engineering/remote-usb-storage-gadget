@@ -50,13 +50,24 @@ const createMemoryBlockDevice = () => {
 };
 
 // records the block devices attached to it, attach completes when the test calls finishAttach
-const createFakeStorageGadget = ({ finishAttachImmediately = true }: { finishAttachImmediately?: boolean } = {}) => {
+type TFakeStorageGadgetOptions = {
+  finishAttachImmediately?: boolean;
+  attachError?: Error;
+  detachError?: Error;
+};
+
+ 
+const createFakeStorageGadget = ({ finishAttachImmediately = true, attachError, detachError }: TFakeStorageGadgetOptions = {}) => {
   let attachedBlockDevice: TBlockDevice | undefined = undefined;
   let detachCalls = 0;
   let finishAttach = () => {};
 
   const storageGadget: TStorageGadget = {
     attach: async ({ blockDevice }) => {
+      if (attachError !== undefined) {
+        throw attachError;
+      }
+
       attachedBlockDevice = blockDevice;
 
       if (!finishAttachImmediately) {
@@ -68,6 +79,10 @@ const createFakeStorageGadget = ({ finishAttachImmediately = true }: { finishAtt
       return {
         detach: async () => {
           detachCalls += 1;
+          if (detachError !== undefined) {
+            throw detachError;
+          }
+
           attachedBlockDevice = undefined;
         },
       };
@@ -96,8 +111,8 @@ const createFakeStorageGadget = ({ finishAttachImmediately = true }: { finishAtt
   };
 };
 
-const createTestSetup = ({ finishAttachImmediately = true }: { finishAttachImmediately?: boolean } = {}) => {
-  const fakeStorageGadget = createFakeStorageGadget({ finishAttachImmediately });
+const createTestSetup = (fakeStorageGadgetOptions: TFakeStorageGadgetOptions = {}) => {
+  const fakeStorageGadget = createFakeStorageGadget(fakeStorageGadgetOptions);
   const serverLogger = createRecordingLogger();
   const server = createUsbGadgetServer({ storageGadget: fakeStorageGadget.storageGadget, logger: serverLogger.logger });
 
@@ -247,6 +262,26 @@ describe("server", () => {
       await settle();
 
       assert.strictEqual(fakeStorageGadget.detachCalls(), 1);
+    });
+
+    it("should close the connection if attaching fails", async () => {
+      const { serverLogger, connect } = createTestSetup({ attachError: Error("configfs not mounted") });
+      const { pair } = connect();
+      await settle();
+
+      assert.strictEqual(pair.client.socket.readyState, 3);
+      assert.ok(serverLogger.lines().includes("error: failed to attach the block device of the client: configfs not mounted"));
+    });
+
+    it("should log if detaching fails", async () => {
+      const { serverLogger, connect } = createTestSetup({ detachError: Error("UDC busy") });
+      const { pair } = connect();
+      await settle();
+
+      pair.client.close();
+      await settle();
+
+      assert.ok(serverLogger.lines().includes("error: failed to detach the block device of the client: UDC busy"));
     });
 
     it("should reject a second client while one is attached", async () => {

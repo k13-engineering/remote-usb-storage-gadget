@@ -115,11 +115,20 @@ const createUsbGadgetServer = ({ storageGadget, logger = console }: { storageGad
     });
     let storageGadgetAttachment: TStorageGadgetAttachment | undefined = undefined;
 
+    const detach = ({ attachment }: { attachment: TStorageGadgetAttachment }) => {
+      attachment.detach().catch((error: Error) => {
+        logger.error(`failed to detach the block device of the client: ${error.message}`);
+      });
+    };
+
     storageGadget.attach({ blockDevice: remoteBlockDevice }).then((attachment) => {
       storageGadgetAttachment = attachment;
       if (closed) {
-        storageGadgetAttachment.detach();
+        detach({ attachment });
       }
+    }, (error: Error) => {
+      logger.error(`failed to attach the block device of the client: ${error.message}`);
+      socket.close();
     });
 
     socket.on("error", (error: Error) => {
@@ -130,7 +139,9 @@ const createUsbGadgetServer = ({ storageGadget, logger = console }: { storageGad
       closed = true;
       logger.log("Connection closed");
 
-      storageGadgetAttachment?.detach();
+      if (storageGadgetAttachment !== undefined) {
+        detach({ attachment: storageGadgetAttachment });
+      }
     });
   };
 
